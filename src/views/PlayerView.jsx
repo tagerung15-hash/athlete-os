@@ -1,6 +1,6 @@
 // src/views/PlayerView.jsx — v3 REFACTOR
 import { useState, useEffect } from 'react';
-import { getCheckins, saveCheckin, getGames, saveGame, getMeasurements, saveMeasurement } from '../lib/supabase';
+import { getCheckins, saveCheckin, getGames, saveGame, getMeasurements, saveMeasurement, updatePlayer, supabase } from '../lib/supabase';
 import { POSITIONS, BODY_GOALS, calcNutrition, calcScore, buildGymPlan } from '../lib/config';
 import TacticsView from './TacticsView';
 import LineupView from './LineupView';
@@ -332,8 +332,54 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
   const perfIndex=calcPerformanceIndex();
   const colorMap={red:[C.redLt,C.red,'#7A1F1F'],amber:[C.amberLt,C.amber,C.amber],green:[C.tealLt,C.teal,C.tealDk]};
 
-  const TABS=['engine','training','speed','strength','iq','tactics','lineup','nutrition','game','checkin','progress'];
-  const TAB_LABELS={engine:'🧠 Engine',training:'Training',speed:'Speed System',strength:'Performance Strength',iq:'Position IQ',tactics:'Team Tactics',lineup:'Lineup',nutrition:'Nutrition',game:'Game Log',checkin:'Check-In',progress:'Progress'};
+  // Profile edit state
+  const [profileForm,setProfileForm]=useState({
+    name:player.name||'',
+    position:player.position||'',
+    secondary_position:player.secondary_position||'',
+    body_goal:player.body_goal||'maintain',
+    bio:player.bio||'',
+    jersey_number:player.jersey_number||'',
+    preferred_foot:player.preferred_foot||'',
+  });
+  const [profileSaving,setProfileSaving]=useState(false);
+  const [profileMsg,setProfileMsg]=useState('');
+  const [avatarUploading,setAvatarUploading]=useState(false);
+
+  async function saveProfile() {
+    setProfileSaving(true); setProfileMsg('');
+    const {data,error}=await updatePlayer(player.id,{
+      name:profileForm.name,
+      position:profileForm.position,
+      secondary_position:profileForm.secondary_position||null,
+      body_goal:profileForm.body_goal,
+      bio:profileForm.bio,
+      jersey_number:profileForm.jersey_number?parseInt(profileForm.jersey_number):null,
+      preferred_foot:profileForm.preferred_foot||null,
+    });
+    if (data){setPlayer(data);setProfileMsg('Profile saved! Changes are live.');}
+    else setProfileMsg('Error saving — try again.');
+    setProfileSaving(false);
+    setTimeout(()=>setProfileMsg(''),4000);
+  }
+
+  async function uploadAvatar(e) {
+    const file=e.target.files?.[0];
+    if (!file) return;
+    setAvatarUploading(true);
+    const ext=file.name.split('.').pop();
+    const path=`${player.id}.${ext}`;
+    const {error:upErr}=await supabase.storage.from('avatars').upload(path,file,{upsert:true});
+    if (!upErr) {
+      const {data:{publicUrl}}=supabase.storage.from('avatars').getPublicUrl(path);
+      const {data}=await updatePlayer(player.id,{avatar_url:publicUrl});
+      if (data) setPlayer(data);
+    }
+    setAvatarUploading(false);
+  }
+
+  const TABS=['profile','engine','training','speed','strength','iq','tactics','lineup','nutrition','game','checkin','progress'];
+  const TAB_LABELS={profile:'👤 Profile',engine:'🧠 Engine',training:'Training',speed:'Speed System',strength:'Performance Strength',iq:'Position IQ',tactics:'Team Tactics',lineup:'Lineup',nutrition:'Nutrition',game:'Game Log',checkin:'Check-In',progress:'Progress'};
 
   // Availability status
   const available=!player.is_injured;
@@ -388,6 +434,80 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
       </div>
 
       <div style={{padding:'1.25rem',maxWidth:1100,margin:'0 auto'}}>
+
+        {/* ══ PROFILE ══ */}
+        {tab==='profile'&&<>
+          <Sh>Your Profile</Sh>
+          <div style={{display:'grid',gridTemplateColumns:'200px 1fr',gap:'1.5rem'}}>
+            {/* Avatar */}
+            <div style={{textAlign:'center'}}>
+              <div style={{width:150,height:150,borderRadius:'50%',background:C.bg,border:`3px solid ${pos.color}`,margin:'0 auto 12px',overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',fontSize:48}}>
+                {player.avatar_url?<img src={player.avatar_url} alt="avatar" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:(player.name?.split(' ').map(n=>n[0]).join('')||'?')}
+              </div>
+              <label style={{display:'inline-block',padding:'7px 16px',borderRadius:8,border:`1px solid ${C.border}`,background:'white',fontSize:12,fontWeight:600,cursor:'pointer',color:C.muted}}>
+                {avatarUploading?'Uploading...':'📷 Change Photo'}
+                <input type="file" accept="image/*" onChange={uploadAvatar} style={{display:'none'}}/>
+              </label>
+              <div style={{marginTop:12,textAlign:'center'}}>
+                <div style={{fontSize:13,fontWeight:700}}>{player.name}</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>{pos.emoji} {pos.label}</div>
+                {player.jersey_number&&<div style={{fontSize:11,color:C.muted}}>#{player.jersey_number}</div>}
+                {player.bio&&<div style={{fontSize:11,color:C.muted,marginTop:6,lineHeight:1.5,fontStyle:'italic'}}>"{player.bio}"</div>}
+              </div>
+            </div>
+
+            {/* Edit form */}
+            <Card>
+              <div style={{fontSize:13,fontWeight:800,marginBottom:12,color:C.text}}>Edit Profile</div>
+              <Inp label="Display name" value={profileForm.name} onChange={e=>setProfileForm(f=>({...f,name:e.target.value}))} placeholder="First + Last name"/>
+              <Inp label="Jersey number" type="number" value={profileForm.jersey_number} onChange={e=>setProfileForm(f=>({...f,jersey_number:e.target.value}))} placeholder="e.g. 10"/>
+
+              <label style={{fontSize:11,color:C.muted,display:'block',marginBottom:6}}>Primary position</label>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:5,marginBottom:10}}>
+                {Object.entries(POSITIONS).map(([k,p])=>(
+                  <div key={k} onClick={()=>setProfileForm(f=>({...f,position:k,secondary_position:f.secondary_position===k?'':f.secondary_position}))}
+                    style={{padding:'8px 6px',borderRadius:8,border:`2px solid ${profileForm.position===k?p.color:C.border}`,background:profileForm.position===k?p.colorLight:'white',cursor:'pointer',textAlign:'center'}}>
+                    <div style={{fontSize:18}}>{p.emoji}</div>
+                    <div style={{fontSize:10,fontWeight:700,marginTop:2,color:profileForm.position===k?p.color:C.text}}>{p.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              <label style={{fontSize:11,color:C.muted,display:'block',marginBottom:4}}>Secondary position <span style={{fontWeight:400}}>(optional)</span></label>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:5,marginBottom:10}}>
+                {Object.entries(POSITIONS).map(([k,p])=>(
+                  <div key={k} onClick={()=>setProfileForm(f=>({...f,secondary_position:f.secondary_position===k?'':k}))}
+                    style={{padding:'8px 6px',borderRadius:8,border:`2px solid ${profileForm.secondary_position===k?p.color:profileForm.position===k?'#E0DED7':C.border}`,background:profileForm.secondary_position===k?p.colorLight:profileForm.position===k?'#F5F4F0':'white',cursor:profileForm.position===k?'not-allowed':'pointer',textAlign:'center',opacity:profileForm.position===k?0.4:1}}>
+                    <div style={{fontSize:18}}>{p.emoji}</div>
+                    <div style={{fontSize:10,fontWeight:700,marginTop:2,color:profileForm.secondary_position===k?p.color:C.text}}>{p.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              <label style={{fontSize:11,color:C.muted,display:'block',marginBottom:6}}>Preferred foot</label>
+              <div style={{display:'flex',gap:6,marginBottom:10}}>
+                {[['Right','right'],['Left','left'],['Both','both']].map(([lbl,val])=>(
+                  <button key={val} onClick={()=>setProfileForm(f=>({...f,preferred_foot:val}))} style={{padding:'6px 14px',borderRadius:20,border:`1px solid ${profileForm.preferred_foot===val?C.blue:C.border}`,background:profileForm.preferred_foot===val?C.blueLt:'white',color:profileForm.preferred_foot===val?C.blueDk:C.muted,fontSize:12,cursor:'pointer',fontWeight:profileForm.preferred_foot===val?700:400}}>{lbl}</button>
+                ))}
+              </div>
+
+              <label style={{fontSize:11,color:C.muted,display:'block',marginBottom:6}}>Body goal</label>
+              <div style={{display:'flex',gap:6,marginBottom:10}}>
+                {Object.entries(BODY_GOALS).map(([k,g])=>(
+                  <button key={k} onClick={()=>setProfileForm(f=>({...f,body_goal:k}))} style={{flex:1,padding:'7px',borderRadius:8,border:`2px solid ${profileForm.body_goal===k?C.blue:C.border}`,background:profileForm.body_goal===k?C.blueLt:'white',fontSize:12,fontWeight:600,cursor:'pointer',color:profileForm.body_goal===k?C.blueDk:C.muted}}>{g.label}</button>
+                ))}
+              </div>
+
+              <label style={{fontSize:11,color:C.muted,display:'block',marginBottom:4}}>Bio / personal note</label>
+              <textarea value={profileForm.bio} onChange={e=>setProfileForm(f=>({...f,bio:e.target.value}))} placeholder="e.g. Box-to-box midfielder. Work rate and pressing are my strengths." rows={3} style={{width:'100%',padding:'7px 9px',borderRadius:7,border:`1px solid ${C.border}`,fontSize:12,fontFamily:'inherit',resize:'vertical',marginBottom:10}}/>
+
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <button onClick={saveProfile} disabled={profileSaving} style={{padding:'8px 20px',borderRadius:8,border:'none',background:C.blue,color:'white',fontSize:13,fontWeight:700,cursor:'pointer'}}>{profileSaving?'Saving...':'Save Changes'}</button>
+                {profileMsg&&<span style={{fontSize:12,color:profileMsg.includes('Error')?C.red:C.teal,fontWeight:600}}>{profileMsg}</span>}
+              </div>
+            </Card>
+          </div>
+        </>}
 
         {/* ══ ENGINE ══ */}
         {tab==='engine'&&<>

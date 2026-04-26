@@ -33,6 +33,7 @@ function PlayerCard({ player, checkins, games, onAssign }) {
   const [expanded, setExpanded] = useState(false);
   const [assignNote, setAssignNote] = useState(player.coach_note || '');
   const [assignFocus, setAssignFocus] = useState(player.coach_focus || '');
+  const [assignSecondary, setAssignSecondary] = useState(player.secondary_position || '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -53,11 +54,10 @@ function PlayerCard({ player, checkins, games, onAssign }) {
   async function saveAssignment() {
     setSaving(true);
     try {
-      await updatePlayer(player.id, { coach_note: assignNote, coach_focus: assignFocus });
+      await updatePlayer(player.id, { coach_note: assignNote, coach_focus: assignFocus, secondary_position: assignSecondary || null });
     } catch(e) {}
     setSaving(false);
     setSaved(true);
-    // Use DOM to show saved — bypasses React re-render timing issues
     const btn = document.getElementById(`save-btn-${player.id}`);
     if (btn) {
       btn.textContent = '✓ Saved!';
@@ -153,6 +153,13 @@ function PlayerCard({ player, checkins, games, onAssign }) {
           {/* Coach assignment */}
           <div style={{ background: C.blueLt, borderRadius: 10, padding: '12px 14px', border: `1px solid ${C.border}` }}>
             <div style={{ fontSize: 11, fontWeight: 800, color: C.blueDk, marginBottom: 8 }}>COACH ASSIGNMENT</div>
+            <label style={{ fontSize: 11, color: C.blueDk, display: 'block', marginBottom: 3 }}>Secondary position</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
+              <button onClick={() => setAssignSecondary('')} style={{ padding: '3px 10px', borderRadius: 20, border: `1px solid ${!assignSecondary ? C.blue : C.border}`, background: !assignSecondary ? C.blue : 'white', color: !assignSecondary ? 'white' : C.muted, fontSize: 11, cursor: 'pointer' }}>None</button>
+              {Object.entries(POSITIONS).filter(([k]) => k !== player.position).map(([k, p]) => (
+                <button key={k} onClick={() => setAssignSecondary(k === assignSecondary ? '' : k)} style={{ padding: '3px 10px', borderRadius: 20, border: `1px solid ${assignSecondary === k ? p.color : C.border}`, background: assignSecondary === k ? p.colorLight : 'white', color: assignSecondary === k ? p.color : C.muted, fontSize: 11, cursor: 'pointer', fontWeight: assignSecondary === k ? 700 : 400 }}>{p.emoji} {p.label}</button>
+              ))}
+            </div>
             <label style={{ fontSize: 11, color: C.blueDk, display: 'block', marginBottom: 3 }}>Weekly focus</label>
             <input value={assignFocus} onChange={e => setAssignFocus(e.target.value)} placeholder="e.g. Sprint PR week — push 40m time" style={{ width: '100%', padding: '6px 8px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, marginBottom: 8, fontFamily: 'inherit' }} />
             <label style={{ fontSize: 11, color: C.blueDk, display: 'block', marginBottom: 3 }}>Coach note (visible to player)</label>
