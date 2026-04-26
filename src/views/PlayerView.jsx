@@ -1,6 +1,6 @@
-// src/views/PlayerView.jsx
+// src/views/PlayerView.jsx — v3 REFACTOR
 import { useState, useEffect } from 'react';
-import { getCheckins, saveCheckin, getGames, saveGame, getLiftLogs, saveLiftLog, getMeasurements, saveMeasurement, updatePlayer } from '../lib/supabase';
+import { getCheckins, saveCheckin, getGames, saveGame, getMeasurements, saveMeasurement } from '../lib/supabase';
 import { POSITIONS, BODY_GOALS, calcNutrition, calcScore, buildGymPlan } from '../lib/config';
 import TacticsView from './TacticsView';
 import LineupView from './LineupView';
@@ -14,328 +14,462 @@ const C = {
   purple:'#5B3FA8',purpleLt:'#EEEDFE',
 };
 
-function Hbox({ color='green', children }) {
-  const map = { green:[C.tealLt,C.teal,C.tealDk], amber:[C.amberLt,C.amber,C.amber], blue:[C.blueLt,C.blue,C.blueDk], red:[C.redLt,C.red,'#7A1F1F'] };
-  const [bg,border,text] = map[color]||map.green;
-  return <div style={{ background:bg,borderLeft:`3px solid ${border}`,color:text,borderRadius:'0 6px 6px 0',padding:'7px 11px',marginTop:8,fontSize:12,lineHeight:1.6 }}>{children}</div>;
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function Hbox({color='green',children}) {
+  const map={green:[C.tealLt,C.teal,C.tealDk],amber:[C.amberLt,C.amber,C.amber],blue:[C.blueLt,C.blue,C.blueDk],red:[C.redLt,C.red,'#7A1F1F'],purple:[C.purpleLt,C.purple,C.purple]};
+  const [bg,brd,clr]=map[color]||map.green;
+  return <div style={{background:bg,borderLeft:`3px solid ${brd}`,color:clr,borderRadius:'0 6px 6px 0',padding:'7px 11px',marginTop:8,fontSize:12,lineHeight:1.6}}>{children}</div>;
 }
-function Bar({ value, color=C.blue }) {
-  return <div style={{ background:'#e0ddd7',borderRadius:20,height:7,overflow:'hidden',marginTop:3,border:`0.5px solid ${C.border}` }}><div style={{ width:`${Math.min(100,value||0)}%`,height:'100%',background:color,borderRadius:20,transition:'width .5s' }}/></div>;
+function Sh({children}) {
+  return <div style={{fontSize:10,fontWeight:800,textTransform:'uppercase',letterSpacing:'.8px',color:C.muted,margin:'1.2rem 0 .5rem',borderBottom:`1px solid ${C.border}`,paddingBottom:4}}>{children}</div>;
 }
-function Sh({ children }) {
-  return <div style={{ fontSize:10,fontWeight:800,textTransform:'uppercase',letterSpacing:'.8px',color:C.muted,margin:'1.2rem 0 .4rem',borderBottom:`1px solid ${C.border}`,paddingBottom:4 }}>{children}</div>;
+function Card({children,style}) {
+  return <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:'1rem 1.1rem',marginBottom:'.75rem',...style}}>{children}</div>;
 }
-function Card({ children, style }) {
-  return <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:'1rem 1.1rem',marginBottom:'.75rem',...style }}>{children}</div>;
-}
-function Inp({ label, ...props }) {
-  return <div style={{ marginBottom:8 }}>
-    {label && <label style={{ fontSize:11,color:C.muted,display:'block',marginBottom:3 }}>{label}</label>}
-    <input style={{ width:'100%',padding:'6px 9px',borderRadius:7,border:`1px solid ${C.border}`,fontSize:13,fontFamily:'inherit',background:'white' }} {...props}/>
+function Inp({label,...props}) {
+  return <div style={{marginBottom:8}}>
+    {label&&<label style={{fontSize:11,color:C.muted,display:'block',marginBottom:3}}>{label}</label>}
+    <input style={{width:'100%',padding:'6px 9px',borderRadius:7,border:`1px solid ${C.border}`,fontSize:13,fontFamily:'inherit',background:'white'}} {...props}/>
   </div>;
 }
-function TblWrap({ children }) {
-  return <div style={{ overflowX:'auto' }}><table style={{ width:'100%',borderCollapse:'collapse',fontSize:12 }}>{children}</table></div>;
+function TblWrap({children}) {
+  return <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>{children}</table></div>;
 }
-function Th({ children }) { return <th style={{ background:C.bg,padding:'7px 9px',textAlign:'left',fontWeight:700,color:C.muted,borderBottom:`2px solid ${C.border}`,whiteSpace:'nowrap' }}>{children}</th>; }
-function Td({ children, hl }) { return <td style={{ padding:'6px 9px',borderBottom:`1px solid ${C.border}`,fontWeight:hl?700:'normal' }}>{children}</td>; }
+function Th({children}) { return <th style={{background:C.bg,padding:'7px 9px',textAlign:'left',fontWeight:700,color:C.muted,borderBottom:`2px solid ${C.border}`,whiteSpace:'nowrap'}}>{children}</th>; }
+function Td({children,hl}) { return <td style={{padding:'6px 9px',borderBottom:`1px solid ${C.border}`,fontWeight:hl?700:'normal',verticalAlign:'top'}}>{children}</td>; }
 
-function IQQuiz({ scenarios, posLabel, posColor }) {
-  const [idx, setIdx] = useState(0);
-  const [correct, setCorrect] = useState(0);
-  const [answered, setAnswered] = useState(null);
-  const [done, setDone] = useState(false);
-
-  if (!scenarios || scenarios.length === 0) return null;
-
+// ── IQ Quiz Component ─────────────────────────────────────────────────────────
+function IQQuiz({scenarios,posColor}) {
+  const [idx,setIdx]=useState(0);
+  const [correct,setCorrect]=useState(0);
+  const [answered,setAnswered]=useState(null);
+  const [done,setDone]=useState(false);
+  if (!scenarios||scenarios.length===0) return null;
   function answer(sel) {
-    if (answered !== null) return;
+    if (answered!==null) return;
     setAnswered(sel);
-    if (sel === scenarios[idx % scenarios.length].best) setCorrect(c => c + 1);
+    if (sel===scenarios[idx].best) setCorrect(c=>c+1);
   }
-
   function next() {
-    const nextIdx = idx + 1;
-    if (nextIdx >= scenarios.length) { setDone(true); return; }
-    setIdx(nextIdx);
-    setAnswered(null);
+    if (idx+1>=scenarios.length){setDone(true);return;}
+    setIdx(i=>i+1); setAnswered(null);
   }
-
-  function reset() { setIdx(0); setCorrect(0); setAnswered(null); setDone(false); }
-
+  function reset(){setIdx(0);setCorrect(0);setAnswered(null);setDone(false);}
   if (done) {
-    const pct = Math.round(correct / scenarios.length * 100);
+    const pct=Math.round(correct/scenarios.length*100);
     return (
-      <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:'1.5rem',textAlign:'center' }}>
-        <div style={{ fontSize:40,fontWeight:800,color:pct>=80?C.teal:pct>=60?C.amber:C.red }}>{pct}%</div>
-        <div style={{ fontSize:14,fontWeight:700,margin:'8px 0' }}>{correct}/{scenarios.length} correct — {pct>=80?'Elite IQ':'Keep studying'}</div>
-        <button onClick={reset} style={{ padding:'8px 20px',borderRadius:8,border:'none',background:posColor,color:'white',fontSize:13,fontWeight:700,cursor:'pointer' }}>Retake</button>
-      </div>
+      <Card style={{textAlign:'center'}}>
+        <div style={{fontSize:36,fontWeight:800,color:pct>=80?C.teal:pct>=60?C.amber:C.red}}>{pct}%</div>
+        <div style={{fontSize:14,fontWeight:700,margin:'6px 0'}}>{correct}/{scenarios.length} correct — {pct>=80?'Elite decision making':'Keep studying'}</div>
+        <button onClick={reset} style={{padding:'8px 20px',borderRadius:8,border:'none',background:posColor||C.blue,color:'white',fontSize:13,fontWeight:700,cursor:'pointer'}}>Retake</button>
+      </Card>
     );
   }
-
-  const q = scenarios[idx];
+  const q=scenarios[idx];
   return (
-    <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:'1.125rem' }}>
-      <div style={{ fontSize:10,fontWeight:700,color:C.muted,marginBottom:6 }}>SCENARIO {idx+1}/{scenarios.length} · {correct} correct</div>
-      <p style={{ fontSize:13,fontWeight:700,marginBottom:10,lineHeight:1.5 }}>{q.q}</p>
-      {q.opts.map((opt,i) => {
-        const isCorrect = i === q.best;
-        const isSelected = answered === i;
-        let bg = 'white', border = C.border, color = C.text;
-        if (answered !== null) {
-          if (isCorrect) { bg = C.tealLt; border = C.teal; color = C.tealDk; }
-          else if (isSelected) { bg = C.redLt; border = C.red; color = '#501313'; }
+    <Card>
+      <div style={{fontSize:10,fontWeight:700,color:C.muted,marginBottom:6}}>SCENARIO {idx+1}/{scenarios.length} · {correct} correct so far</div>
+      <p style={{fontSize:13,fontWeight:700,marginBottom:10,lineHeight:1.6}}>{q.q}</p>
+      {q.opts.map((opt,i)=>{
+        const isCorrect=i===q.best, isSelected=answered===i;
+        let bg='white',brd=C.border,clr=C.text;
+        if (answered!==null){
+          if (isCorrect){bg=C.tealLt;brd=C.teal;clr=C.tealDk;}
+          else if (isSelected){bg=C.redLt;brd=C.red;clr='#501313';}
         }
-        return (
-          <button key={i} onClick={() => answer(i)} disabled={answered !== null} style={{
-            display:'block',width:'100%',textAlign:'left',padding:'9px 13px',marginBottom:5,
-            borderRadius:8,border:`1px solid ${border}`,background:bg,fontSize:12,cursor:answered===null?'pointer':'default',
-            color, fontWeight:isCorrect&&answered!==null?700:'normal',
-          }}>{String.fromCharCode(65+i)}. {opt}</button>
-        );
+        return <button key={i} onClick={()=>answer(i)} disabled={answered!==null} style={{display:'block',width:'100%',textAlign:'left',padding:'9px 13px',marginBottom:5,borderRadius:8,border:`1px solid ${brd}`,background:bg,fontSize:12,cursor:answered===null?'pointer':'default',color:clr,fontWeight:isCorrect&&answered!==null?700:'normal'}}>{String.fromCharCode(65+i)}. {opt}</button>;
       })}
-      {answered !== null && (
-        <div style={{ background:answered===q.best?C.tealLt:C.redLt,border:`1px solid ${answered===q.best?C.teal:C.red}`,borderRadius:8,padding:'8px 12px',fontSize:12,marginTop:5,color:answered===q.best?C.tealDk:'#A32D2D',lineHeight:1.6 }}>
-          {answered===q.best?'✓ Correct — ':'✗ Incorrect. '}{q.fb}
-        </div>
+      {answered!==null&&(
+        <>
+          <div style={{background:answered===q.best?C.tealLt:C.redLt,border:`1px solid ${answered===q.best?C.teal:C.red}`,borderRadius:8,padding:'8px 12px',fontSize:12,marginTop:5,color:answered===q.best?C.tealDk:'#A32D2D',lineHeight:1.6}}>
+            {answered===q.best?'✓ Correct — ':'✗ Incorrect. '}{q.fb}
+          </div>
+          <div style={{textAlign:'right',marginTop:8}}>
+            <button onClick={next} style={{padding:'7px 18px',borderRadius:8,border:'none',background:C.blue,color:'white',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+              {idx+1>=scenarios.length?'See Results':'Next →'}
+            </button>
+          </div>
+        </>
       )}
-      {answered !== null && (
-        <div style={{ textAlign:'right',marginTop:8 }}>
-          <button onClick={next} style={{ padding:'7px 18px',borderRadius:8,border:'none',background:C.blue,color:'white',fontSize:12,fontWeight:700,cursor:'pointer' }}>
-            {idx+1 >= scenarios.length ? 'See Results' : 'Next →'}
-          </button>
+    </Card>
+  );
+}
+
+// ── Performance Radar ─────────────────────────────────────────────────────────
+function PerformanceRadar({speed,endurance,strength,availability,matchImpact}) {
+  const dims=[
+    {label:'Speed',value:speed,color:C.blue},
+    {label:'Endurance',value:endurance,color:C.teal},
+    {label:'Strength',value:strength,color:C.purple},
+    {label:'Availability',value:availability,color:C.amber},
+    {label:'Match Impact',value:matchImpact,color:C.red},
+  ];
+  return (
+    <div>
+      {dims.map(d=>(
+        <div key={d.label} style={{marginBottom:12}}>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:3}}>
+            <span style={{fontWeight:600}}>{d.label}</span>
+            <span style={{fontWeight:800,color:d.color}}>{d.value??'—'}</span>
+          </div>
+          <div style={{background:'#e0ddd7',borderRadius:20,height:8,overflow:'hidden',border:`0.5px solid ${C.border}`}}>
+            <div style={{width:`${Math.min(100,d.value||0)}%`,height:'100%',background:d.color,borderRadius:20,transition:'width .6s'}}/>
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+            {d.label==='Speed'&&'Based on 40m sprint time'}
+            {d.label==='Endurance'&&'Based on training consistency'}
+            {d.label==='Strength'&&'Based on check-in data'}
+            {d.label==='Availability'&&'Based on injury-free training days'}
+            {d.label==='Match Impact'&&'Based on game log ratings + stats'}
+          </div>
         </div>
-      )}
+      ))}
     </div>
   );
 }
 
-export default function PlayerView({ player: initPlayer, team, onLogout }) {
-  const [player, setPlayer] = useState(initPlayer);
-  const [tab, setTab] = useState('engine');
-  const [checkins, setCheckins] = useState([]);
-  const [games, setGames] = useState([]);
-  const [liftLogs, setLiftLogs] = useState([]);
-  const [measurements, setMeasurements] = useState([]);
-  const [loading, setLoading] = useState(true);
+// ── Injury Return Ladders ─────────────────────────────────────────────────────
+const INJURY_LADDERS = {
+  ankle: {
+    label:'Ankle Sprain',
+    stages:[
+      {stage:'1 — Rest + Ice','activity':'No weight bearing. Ice 20 min every 2 hrs. Elevation.','pass':'Zero pain at rest for 24 hrs'},
+      {stage:'2 — Walking','activity':'Normal walking, no limp. Achilles armor daily.','pass':'Full day walking zero pain'},
+      {stage:'3 — Light jog','activity':'Easy jog 5–10 min on flat ground.','pass':'30-min jog pain-free'},
+      {stage:'4 — Strides 60%','activity':'4×50m strides flat shoes, no spikes.','pass':'All pain-free, no limp'},
+      {stage:'5 — Strides 80%','activity':'4×60m at 80% + agility at 50%.','pass':'Ankle symmetric to other side'},
+      {stage:'6 — First sprint','activity':'2×30m + 2×60m in spikes, no dead legs.','pass':'Within 10% of pre-injury time'},
+      {stage:'7 — Full return','activity':'Complete full training session.','pass':'You are back'},
+    ]
+  },
+  hamstring: {
+    label:'Hamstring Strain',
+    stages:[
+      {stage:'1 — Protect','activity':'No running. Gentle walking only. Ice + compression.','pass':'Zero pain walking for 48 hrs'},
+      {stage:'2 — Light movement','activity':'Easy cycling 15 min, light stretching, no loading.','pass':'No pain during or after cycling'},
+      {stage:'3 — Strength','activity':'Isometric hamstring holds, Nordic curl negatives, single-leg RDL (light).','pass':'No pain during exercises'},
+      {stage:'4 — Jogging','activity':'Easy jog 10–15 min, stop if any tightness.','pass':'20-min jog pain-free'},
+      {stage:'5 — Progressive running','activity':'Build to 70% speed over 4–6 sessions.','pass':'No compensation pattern, symmetric'},
+      {stage:'6 — Speed work','activity':'Controlled sprint work 80–90%, no max effort.','pass':'Sprint feels normal, no tightness after'},
+      {stage:'7 — Full return','activity':'Full training including maximal sprints.','pass':'Cleared by physio or pain-free for 5 sessions'},
+    ]
+  },
+  knee: {
+    label:'Knee (General)',
+    stages:[
+      {stage:'1 — Reduce load','activity':'No impact. Swimming or cycling only if pain-free.','pass':'Swelling reduced, pain below 3/10'},
+      {stage:'2 — Stability work','activity':'Straight-leg raises, quad sets, calf raises. No squatting.','pass':'No pain during exercises'},
+      {stage:'3 — Partial loading','activity':'Bodyweight squats, step-ups, leg press light.','pass':'No pain during or 24 hrs after'},
+      {stage:'4 — Jogging','activity':'Easy jog 10 min, flat surface, monitor closely.','pass':'No swelling post-run'},
+      {stage:'5 — Change of direction','activity':'Gradual cutting, no sharp movements yet.','pass':'Symmetric movement, no compensation'},
+      {stage:'6 — Full loading','activity':'Plyometrics, jumps, full sprint work.','pass':'Equal strength and confidence both legs'},
+      {stage:'7 — Full return','activity':'Full training and match availability.','pass':'Cleared by medical staff'},
+    ]
+  },
+  groin: {
+    label:'Groin Strain',
+    stages:[
+      {stage:'1 — Rest','activity':'No adductor loading. Ice + rest. No wide movements.','pass':'Zero pain walking normally'},
+      {stage:'2 — Gentle mobility','activity':'Hip mobility work, light adductor squeezes with ball.','pass':'No pain during gentle exercises'},
+      {stage:'3 — Strengthening','activity':'Copenhagen planks (modified), side-lying adduction, single-leg balance.','pass':'No pain during or after'},
+      {stage:'4 — Jogging','activity':'Straight-line jogging 10–15 min.','pass':'No groin tightness during or after'},
+      {stage:'5 — Lateral movement','activity':'Side shuffles, light cutting, gradual direction changes.','pass':'Symmetric range of motion'},
+      {stage:'6 — Full speed','activity':'Sprint work, sharp cuts, kicking practice.','pass':'Full power kicks pain-free'},
+      {stage:'7 — Full return','activity':'Full training participation.','pass':'No tightness or compensation'},
+    ]
+  },
+  calf: {
+    label:'Calf Strain',
+    stages:[
+      {stage:'1 — Protect','activity':'No pushing off. Crutches if needed. Ice + elevation.','pass':'Can walk without limp'},
+      {stage:'2 — Gentle loading','activity':'Double-leg calf raises (no pain), gentle stretching.','pass':'No pain during double-leg raises'},
+      {stage:'3 — Single-leg','activity':'Single-leg calf raises, eccentric focus.','pass':'10+ single-leg raises pain-free'},
+      {stage:'4 — Jogging','activity':'Easy jog 10 min, flat surface.','pass':'20-min jog pain-free'},
+      {stage:'5 — Running','activity':'Progressive speed build over multiple sessions.','pass':'Can run at 80% without tightness'},
+      {stage:'6 — Sprint + change of direction','activity':'Sprint work, acceleration, deceleration.','pass':'Full speed pain-free with no compensation'},
+      {stage:'7 — Full return','activity':'Full training session.','pass':'Symmetric calf strength'},
+    ]
+  },
+  lower_back: {
+    label:'Lower Back',
+    stages:[
+      {stage:'1 — Reduce load','activity':'No heavy lifting or twisting. Walking and gentle movement only.','pass':'Pain below 4/10 at rest'},
+      {stage:'2 — Core activation','activity':'Dead bugs, bird dogs, gentle cat-cow. No loading.','pass':'No pain during core exercises'},
+      {stage:'3 — Stability','activity':'Planks, side planks, glute bridges, hip hinges (bodyweight).','pass':'Can hold plank 60s without pain'},
+      {stage:'4 — Light training','activity':'Light jogging, no high-impact. Avoid headers.','pass':'20-min jog with zero back pain'},
+      {stage:'5 — Progressive loading','activity':'Return to gym lifts at reduced weight. Monitor closely.','pass':'No pain increase during or 24 hrs after'},
+      {stage:'6 — Full training','activity':'All training including heading, jumping, sprinting.','pass':'Full range of motion, symmetric'},
+      {stage:'7 — Full return','activity':'Match availability.','pass':'Cleared by medical staff or 3 full sessions pain-free'},
+    ]
+  },
+};
+
+// ── Main Component ────────────────────────────────────────────────────────────
+export default function PlayerView({player:initPlayer,team,onLogout}) {
+  const [player,setPlayer]=useState(initPlayer);
+  const [tab,setTab]=useState('engine');
+  const [checkins,setCheckins]=useState([]);
+  const [games,setGames]=useState([]);
+  const [measurements,setMeasurements]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [matchDays,setMatchDays]=useState(''); // days until next match
 
   // Engine state
-  const [rSleep, setRSleep] = useState(0);
-  const [rSore, setRSore] = useState(0);
-  const [rInj, setRInj] = useState(0);
-  const [rEnergy, setREnergy] = useState(0);
-  const [rPrev, setRPrev] = useState(0);
-  const [rHard, setRHard] = useState(0);
-  const [decision, setDecision] = useState(null);
+  const [rSleep,setRSleep]=useState(0);
+  const [rSore,setRSore]=useState(0);
+  const [rInj,setRInj]=useState(false);
+  const [rEnergy,setREnergy]=useState(0);
+  const [rPrev,setRPrev]=useState(0);
+  const [rHard,setRHard]=useState(0);
+  const [rMatch,setRMatch]=useState('none'); // none|today|tomorrow|2days|3plus
+  const [decision,setDecision]=useState(null);
+  const [injuryType,setInjuryType]=useState('ankle');
 
   // Check-in form
-  const [ciForm, setCiForm] = useState({ weight_lbs:'',sprint_40m:'',bench_lbs:'',sleep_avg:'',energy_avg:'',soreness_avg:'',days_completed:'' });
-  const [ciSaving, setCiSaving] = useState(false);
-  const [ciMsg, setCiMsg] = useState('');
+  const [ciForm,setCiForm]=useState({weight_lbs:'',sprint_40m:'',sleep_avg:'',energy_avg:'',soreness_avg:'',days_trained:'',minutes_played:'',training_attended:''});
+  const [ciSaving,setCiSaving]=useState(false);
+  const [ciMsg,setCiMsg]=useState('');
 
   // Game form
-  const [gForm, setGForm] = useState({});
-  const [gSaving, setGSaving] = useState(false);
+  const [gForm,setGForm]=useState({});
+  const [gSaving,setGSaving]=useState(false);
 
-  // Lift form
-  const [lForm, setLForm] = useState({});
-  const [lSaving, setLSaving] = useState(false);
+  const pos=POSITIONS[player.position]||POSITIONS.striker;
+  const secondaryPos=player.secondary_position?POSITIONS[player.secondary_position]:null;
+  const nutrition=calcNutrition(player);
+  const latestCI=checkins[0];
+  const gymPlan=buildGymPlan(player.position,player.secondary_position);
 
-  const pos = POSITIONS[player.position] || POSITIONS.striker;
-  const secondaryPos = player.secondary_position ? POSITIONS[player.secondary_position] : null;
-  const nutrition = calcNutrition(player);
-  const latestCI = checkins[0];
-  const scoreData = calcScore(player, latestCI, games);
-  const gymPlan = buildGymPlan(player.position, player.secondary_position);
+  // Performance Index calculation
+  function calcPerformanceIndex() {
+    let speed=0,endurance=0,strength=0,availability=0,matchImpact=0;
+    if (latestCI?.sprint_40m) speed=Math.min(100,Math.round(Math.max(0,(6.0-latestCI.sprint_40m)/1.6*100)));
+    if (checkins.length>=2) {
+      const recentDays=checkins.slice(0,4).map(c=>c.days_trained||c.days_completed||0);
+      endurance=Math.min(100,Math.round((recentDays.reduce((a,b)=>a+b,0)/recentDays.length)/7*100));
+    }
+    if (latestCI?.weight_lbs&&latestCI?.sprint_40m) strength=Math.min(100,Math.round((speed*0.4+endurance*0.6)));
+    if (checkins.length>0) {
+      const injuryFreeWeeks=checkins.filter(c=>(c.days_trained||c.days_completed||0)>=4).length;
+      availability=Math.min(100,Math.round((injuryFreeWeeks/Math.max(checkins.length,1))*100));
+    }
+    if (games.length>=2) {
+      const ratings=games.filter(g=>g.self_rating).map(g=>g.self_rating);
+      matchImpact=ratings.length?Math.min(100,Math.round((ratings.reduce((a,b)=>a+b,0)/ratings.length)*10)):0;
+    }
+    return {speed,endurance,strength,availability,matchImpact};
+  }
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(()=>{loadAll();},[]);
 
   async function loadAll() {
-    const [{ data: cis }, { data: gs }, { data: ls }, { data: ms }] = await Promise.all([
-      getCheckins(player.id), getGames(player.id), getLiftLogs(player.id), getMeasurements(player.id)
+    const [{data:cis},{data:gs},{data:ms}]=await Promise.all([
+      getCheckins(player.id),getGames(player.id),getMeasurements(player.id)
     ]);
-    setCheckins(cis || []);
-    setGames(gs || []);
-    setLiftLogs(ls || []);
-    setMeasurements(ms || []);
+    setCheckins(cis||[]);
+    setGames(gs||[]);
+    setMeasurements(ms||[]);
     setLoading(false);
   }
 
   function calcDecision() {
-    let type, title, items;
-    if (rInj === 2) {
+    let type,title,items=[];
+    const matchSoon=rMatch==='today'||rMatch==='tomorrow';
+    const matchIn2=rMatch==='2days';
+
+    if (rInj) {
       type='red'; title='🛑 Injury Protocol Active';
-      items=['Replace sprint → Stationary bike 20 min','Upper body only — no leg loading','Achilles armor protocol mandatory','Extra 500 cal for tissue repair','9+ hrs sleep tonight'];
-    } else if (rHard >= 4 || rSleep <= 5 || rSore >= 9 || (rPrev===2&&rSore>=7)) {
-      type='red'; title='🔴 Recovery Day';
-      items=['Solo Leveling lite (50%) only','15-min easy walk — zero intensity','Foam roll + full stretch 20 min','Full calories — recovery needs fuel','9+ hrs sleep tonight'];
-    } else if (rHard >= 3 || rSleep === 6 || rSore >= 6 || rEnergy === 2) {
+      items=[`Follow the ${INJURY_LADDERS[injuryType]?.label||'injury'} return-to-play ladder`,'Upper body and non-impacted areas only','No sprinting or change of direction','Communicate with your coach and medical staff','Full nutrition — recovery needs fuel'];
+    } else if (rHard>=4||rSleep<=5||rSore>=9) {
+      type='red'; title='🔴 Recovery Day — Full Rest';
+      items=['No structured training today','15-min easy walk maximum','Full nutrition + extra hydration','9+ hours sleep tonight','Foam roll and light stretch only'];
+    } else if (matchSoon) {
+      type='amber'; title=`🟡 Match ${rMatch==='today'?'Today':'Tomorrow'} — Activation Only`;
+      items=[rMatch==='today'?'Pre-match activation only — 15 min max':'Light technical work + set piece prep','No heavy lifting or high-intensity running','Focus on sleep and nutrition today',pos.label+' specific: '+pos.sprintFocus.split('+')[0].trim()];
+    } else if (matchIn2) {
+      type='amber'; title='🟡 Match in 2 Days — Moderate Session';
+      items=['Moderate intensity — 70% max effort','Short sharp speed work only (under 30m)','Strength work at reduced weight — skip heavy compounds','Prioritize sleep tonight'];
+    } else if (rHard>=3||rSleep===6||rSore>=6||rEnergy===2) {
       type='amber'; title='🟡 Reduce Intensity 30%';
-      items=['Gym at 70% weights, 2 sets per exercise','Skip arm finisher — add to next session','No max-effort sprints — tempo only','Prioritize 8+ hrs sleep tonight'];
+      items=['Gym at 70% — 2 sets per exercise','Skip high-intensity sprint work — tempo only','Reduce accessory work, keep core compounds','Prioritize 8+ hours sleep tonight'];
     } else {
-      type='green'; title='🟢 Full Training';
-      items=['Execute today\'s session at full intensity','Arm finisher mandatory — log weight and reps',`${pos.label}-specific: ${pos.sprintFocus}`,'Post-session finishing protocol if applicable'];
+      type='green'; title='🟢 Full Training Session';
+      items=['Execute today\'s full session','Push for progression on your main lifts',pos.label+': '+pos.sprintFocus,'Prioritize sleep and post-session nutrition'];
     }
-    setDecision({ type, title, items });
+    setDecision({type,title,items});
   }
 
   async function submitCheckin() {
     setCiSaving(true);
-    const weekDate = new Date();
-    weekDate.setDate(weekDate.getDate() - weekDate.getDay()); // Sunday of this week
-    const dateStr = weekDate.toISOString().split('T')[0];
-
-    // Auto-adjust logic
-    const prev = checkins[0];
-    const adjs = [];
-    let calTarget = nutrition.calories;
-    if (prev?.weight_lbs && ciForm.weight_lbs) {
-      const diff = parseFloat(ciForm.weight_lbs) - prev.weight_lbs;
-      if (diff < 0.2 && player.body_goal === 'gain') { calTarget += 300; adjs.push({ t:'Weight stalled', d:`Add +300 cal/day → target ${calTarget}` }); }
-      else if (diff < 0) { calTarget += 500; adjs.push({ t:'Losing weight', d:`Urgently increase to ${calTarget} cal/day` }); }
+    const weekDate=new Date();
+    weekDate.setDate(weekDate.getDate()-weekDate.getDay());
+    const dateStr=weekDate.toISOString().split('T')[0];
+    const adjs=[];
+    let calTarget=nutrition.calories;
+    const prev=checkins[0];
+    if (prev?.weight_lbs&&ciForm.weight_lbs) {
+      const diff=parseFloat(ciForm.weight_lbs)-prev.weight_lbs;
+      if (diff<0.2&&player.body_goal==='gain'){calTarget+=300;adjs.push({t:'Weight stalled',d:`Increase calories to ${calTarget}/day`});}
+      else if (diff<0){calTarget+=500;adjs.push({t:'Losing weight',d:`Urgently increase to ${calTarget} cal/day`});}
     }
-    if (ciForm.sleep_avg < 6.5) adjs.push({ t:'Sleep insufficient', d:'Drop intensity 30% until avg sleep returns to 7.5+' });
-    if (ciForm.days_completed <= 3) adjs.push({ t:'Low compliance', d:'Reset to last week volume. Do not catch up.' });
-    if (ciForm.energy_avg >= 8) adjs.push({ t:'High energy', d:'Push for PRs this week. Add extra arm set.' });
-
-    const { data } = await saveCheckin(player.id, { week_date: dateStr, ...ciForm, cal_target: calTarget, adjustments: adjs });
-    if (data) {
-      setCheckins([data, ...checkins]);
-      setCiMsg('Saved! ' + (adjs.length ? `${adjs.length} adjustment${adjs.length>1?'s':''} generated.` : 'No adjustments needed — keep going.'));
-    }
+    if (ciForm.sleep_avg<6.5) adjs.push({t:'Sleep insufficient',d:'Reduce training intensity until sleep averages 7.5+'});
+    if ((ciForm.days_trained||0)<=3) adjs.push({t:'Low training attendance',d:'Reset to previous week volume — do not catch up'});
+    const {data}=await saveCheckin(player.id,{week_date:dateStr,...ciForm,cal_target:calTarget,adjustments:adjs});
+    if (data){setCheckins([data,...checkins]);setCiMsg('Saved! '+(adjs.length?`${adjs.length} adjustment${adjs.length>1?'s':''} generated.`:'No adjustments needed.'));}
     setCiSaving(false);
   }
 
   async function submitGame() {
     setGSaving(true);
-    const stats = {};
-    pos.gameStats.forEach(k => { if (gForm[k] !== undefined && gForm[k] !== '') stats[k] = parseFloat(gForm[k]) || 0; });
-    const { data } = await saveGame(player.id, { game_date: gForm.date || new Date().toISOString().split('T')[0], opponent: gForm.opponent, minutes_played: parseInt(gForm.minutes) || 90, stats, self_rating: parseInt(gForm.self_rating) || null, run_worked: gForm.run_worked, notes: gForm.notes });
-    if (data) setGames([data, ...games]);
+    const stats={};
+    pos.gameStats.forEach(k=>{if(gForm[k]!==undefined&&gForm[k]!=='')stats[k]=parseFloat(gForm[k])||0;});
+    const {data}=await saveGame(player.id,{game_date:gForm.date||new Date().toISOString().split('T')[0],opponent:gForm.opponent,minutes_played:parseInt(gForm.minutes)||90,stats,self_rating:parseInt(gForm.self_rating)||null,run_worked:gForm.run_worked,notes:gForm.notes});
+    if (data) setGames([data,...games]);
     setGForm({});
     setGSaving(false);
   }
 
-  const ARM_LIFTS = ['Barbell curl','Skull crushers','Cable curls','Hammer curls','Rope pushdowns'];
-  async function submitLifts() {
-    setLSaving(true);
-    const rows = ARM_LIFTS.map((ex,i) => ({ exercise:ex, weight_lbs:parseFloat(lForm['w'+i])||null, reps:parseInt(lForm['r'+i])||null })).filter(r=>r.weight_lbs&&r.reps);
-    if (rows.length) { const { data } = await saveLiftLog(player.id, rows); if(data) setLiftLogs([...data,...liftLogs]); }
-    setLForm({});
-    setLSaving(false);
-  }
+  const perfIndex=calcPerformanceIndex();
+  const colorMap={red:[C.redLt,C.red,'#7A1F1F'],amber:[C.amberLt,C.amber,C.amber],green:[C.tealLt,C.teal,C.tealDk]};
 
-  const TABS = ['engine','training','sprint','gym','iq','tactics','lineup','nutrition','game','checkin','progress'];
-  const TAB_LABELS = { engine:'🧠 Engine', training:'Training', sprint:'Sprint', gym:'Gym + Arms', iq:'Position IQ', tactics:'Team Tactics', lineup:'Lineup', nutrition:'Nutrition', game:'Game Log', checkin:'Check-In', progress:'Progress' };
+  const TABS=['engine','training','speed','strength','iq','tactics','lineup','nutrition','game','checkin','progress'];
+  const TAB_LABELS={engine:'🧠 Engine',training:'Training',speed:'Speed System',strength:'Performance Strength',iq:'Position IQ',tactics:'Team Tactics',lineup:'Lineup',nutrition:'Nutrition',game:'Game Log',checkin:'Check-In',progress:'Progress'};
 
-  const colorMap = { red: [C.redLt, C.red, '#7A1F1F'], amber: [C.amberLt, C.amber, C.amber], green: [C.tealLt, C.teal, C.tealDk] };
+  // Availability status
+  const available=!player.is_injured;
+  const availLabel=player.is_injured?'Injured':'Available';
+  const availColor=player.is_injured?C.red:C.teal;
 
   return (
-    <div style={{ background:C.bg, minHeight:'100vh' }}>
-      {/* Header */}
-      <div style={{ background:'linear-gradient(135deg,#0F2D4A,#083A5E,#0A5A8A)', color:'white', padding:'1.25rem 1.75rem 1rem' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:8 }}>
+    <div style={{background:C.bg,minHeight:'100vh'}}>
+      {/* ── Header ── */}
+      <div style={{background:'linear-gradient(135deg,#0F2D4A,#083A5E,#0A5A8A)',color:'white',padding:'1.25rem 1.75rem 1rem'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:8}}>
           <div>
-            <h1 style={{ fontSize:18,fontWeight:800,margin:0 }}>{player.name}</h1>
-            <p style={{ fontSize:11,opacity:.7,margin:'3px 0 0' }}>Athlete OS · {team.name}</p>
+            <h1 style={{fontSize:18,fontWeight:800,margin:0}}>{player.name}</h1>
+            <p style={{fontSize:11,opacity:.7,margin:'3px 0 0'}}>{team.name}</p>
           </div>
-          <button onClick={onLogout} style={{ padding:'6px 14px',borderRadius:8,border:'1px solid rgba(255,255,255,.3)',background:'transparent',color:'white',fontSize:12,cursor:'pointer' }}>Logout</button>
+          <button onClick={onLogout} style={{padding:'6px 14px',borderRadius:8,border:'1px solid rgba(255,255,255,.3)',background:'transparent',color:'white',fontSize:12,cursor:'pointer'}}>Logout</button>
         </div>
-        {/* Identity bar */}
-        <div style={{ display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:6,marginTop:12 }}>
+
+        {/* Position badges */}
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:10}}>
+          <span style={{fontSize:11,padding:'3px 10px',borderRadius:20,fontWeight:700,background:pos.color,color:'white'}}>{pos.emoji} {pos.label}</span>
+          {secondaryPos&&<span style={{fontSize:11,padding:'3px 10px',borderRadius:20,fontWeight:700,background:'rgba(255,255,255,.15)',color:'white'}}>{secondaryPos.emoji} {secondaryPos.label}</span>}
+          <span style={{fontSize:11,padding:'3px 10px',borderRadius:20,fontWeight:700,background:available?'rgba(29,158,117,.4)':'rgba(226,75,74,.4)',color:'white'}}>{availLabel}</span>
+          {player.coach_focus&&<span style={{fontSize:11,padding:'3px 10px',borderRadius:20,fontWeight:700,background:'rgba(255,255,255,.15)',color:'white'}}>📌 {player.coach_focus}</span>}
+        </div>
+
+        {/* Key metrics */}
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginTop:12}}>
           {[
-            [latestCI?.weight_lbs||player.weight_lbs||'—','Weight','lbs'],
-            [latestCI?.sprint_40m||player.sprint_40m||'—','40m Sprint','s'],
-            [latestCI?.bench_lbs||player.bench_lbs||'—','Bench','lbs'],
-            [scoreData.total,'Score',''],
-            [pos.emoji+' '+pos.label,'Position',''],
+            [latestCI?.sprint_40m||'—','40m Sprint','s'],
+            [latestCI?.days_trained??latestCI?.days_completed??'—','Days Trained','/wk'],
+            [games.length,'Games Logged',''],
+            [latestCI?.minutes_played??'—','Min Played',''],
           ].map(([val,lbl,unit])=>(
-            <div key={lbl} style={{ textAlign:'center',background:'rgba(255,255,255,.1)',borderRadius:8,padding:'6px 4px' }}>
-              <div style={{ fontSize:15,fontWeight:800,color:'white' }}>{val}{unit&&val!=='—'?unit:''}</div>
-              <div style={{ fontSize:9,opacity:.55 }}>{lbl}</div>
+            <div key={lbl} style={{textAlign:'center',background:'rgba(255,255,255,.1)',borderRadius:8,padding:'7px 4px'}}>
+              <div style={{fontSize:16,fontWeight:800,color:'white'}}>{val}{unit&&val!=='—'?unit:''}</div>
+              <div style={{fontSize:9,opacity:.6}}>{lbl}</div>
             </div>
           ))}
         </div>
-        {/* Badges */}
-        <div style={{ display:'flex',gap:6,flexWrap:'wrap',marginTop:8 }}>
-          <span style={{ fontSize:10,padding:'2px 9px',borderRadius:20,fontWeight:700,background:`rgba(255,255,255,.15)`,color:'rgba(255,255,255,.85)' }}>{pos.emoji} {pos.label}</span>
-          {secondaryPos && <span style={{ fontSize:10,padding:'2px 9px',borderRadius:20,fontWeight:700,background:`rgba(255,255,255,.1)`,color:'rgba(255,255,255,.75)' }}>{secondaryPos.emoji} {secondaryPos.label} (2nd)</span>}
-          <span style={{ fontSize:10,padding:'2px 9px',borderRadius:20,fontWeight:700,background:`rgba(255,255,255,.15)`,color:'rgba(255,255,255,.85)' }}>💪 {pos.gymPriority}</span>
-          <span style={{ fontSize:10,padding:'2px 9px',borderRadius:20,fontWeight:700,background:`rgba(255,255,255,.15)`,color:'rgba(255,255,255,.85)' }}>{BODY_GOALS[player.body_goal]?.label}</span>
-          {player.coach_focus && <span style={{ fontSize:10,padding:'2px 9px',borderRadius:20,fontWeight:700,background:'rgba(29,158,117,.35)',color:'#9efcd9' }}>📌 {player.coach_focus}</span>}
-          {player.is_injured && <span style={{ fontSize:10,padding:'2px 9px',borderRadius:20,fontWeight:700,background:'rgba(226,75,74,.35)',color:'#ffd0cf' }}>🩹 Injured</span>}
-        </div>
-        {player.coach_note && <div style={{ marginTop:8,padding:'6px 10px',background:'rgba(255,255,255,.1)',borderRadius:8,fontSize:12,opacity:.9 }}>📋 Coach: {player.coach_note}</div>}
+
+        {player.coach_note&&<div style={{marginTop:10,padding:'6px 10px',background:'rgba(255,255,255,.1)',borderRadius:8,fontSize:12,opacity:.9}}>📋 Coach: {player.coach_note}</div>}
       </div>
 
-      {/* Nav */}
-      <div style={{ display:'flex',gap:4,padding:'.625rem 1.25rem',background:'white',borderBottom:`1px solid ${C.border}`,flexWrap:'wrap',position:'sticky',top:0,zIndex:100 }}>
+      {/* ── Nav ── */}
+      <div style={{display:'flex',gap:4,padding:'.6rem 1rem',background:'white',borderBottom:`1px solid ${C.border}`,flexWrap:'wrap',position:'sticky',top:0,zIndex:100}}>
         {TABS.map(t=>(
-          <button key={t} onClick={()=>setTab(t)} style={{ padding:'5px 11px',borderRadius:20,border:`1px solid ${tab===t?C.blue:C.border}`,background:tab===t?C.blue:'white',color:tab===t?'white':C.muted,cursor:'pointer',fontSize:11,fontWeight:500,whiteSpace:'nowrap' }}>
+          <button key={t} onClick={()=>setTab(t)} style={{padding:'5px 10px',borderRadius:20,border:`1px solid ${tab===t?C.blue:C.border}`,background:tab===t?C.blue:'white',color:tab===t?'white':C.muted,cursor:'pointer',fontSize:11,fontWeight:500,whiteSpace:'nowrap'}}>
             {TAB_LABELS[t]}
           </button>
         ))}
       </div>
 
-      <div style={{ padding:'1.25rem',maxWidth:1100,margin:'0 auto' }}>
+      <div style={{padding:'1.25rem',maxWidth:1100,margin:'0 auto'}}>
 
         {/* ══ ENGINE ══ */}
-        {tab==='engine' && <>
+        {tab==='engine'&&<>
           <Sh>Daily Readiness — What Should I Do Today?</Sh>
-          <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1rem' }}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1rem'}}>
             <div>
               {[
-                ['Sleep last night?', [['8+ hrs',8,'teal'],['7 hrs',7,'teal'],['6 hrs',6,'amber'],['≤5 hrs',5,'red']], rSleep, setRSleep],
-                ['Soreness?', [['None/Fresh',1,'teal'],['Mild (1-4)',4,'teal'],['Moderate (5-6)',6,'amber'],['Heavy (7-8)',8,'amber'],['Pain 9-10',10,'red']], rSore, setRSore],
-                ['Injury?', [['No injury',0,'teal'],['Minor',1,'amber'],['Active ankle injury',2,'red']], rInj, setRInj],
-                ['Energy?', [['High',3,'teal'],['Moderate',2,'amber'],['Low',1,'red']], rEnergy, setREnergy],
-                ['Yesterday was?', [['Rest/Easy',0,'teal'],['Moderate',1,'amber'],['Intense',2,'red']], rPrev, setRPrev],
-                ['Hard sessions this week?', [['0',0,'teal'],['1',1,'teal'],['2',2,'amber'],['3',3,'amber'],['4+',4,'red']], rHard, setRHard],
+                ['Sleep last night?',[['8+ hrs',8,'teal'],['7 hrs',7,'teal'],['6 hrs',6,'amber'],['≤5 hrs',5,'red']],rSleep,setRSleep],
+                ['Muscle soreness?',[['None',1,'teal'],['Mild (1-4)',4,'teal'],['Moderate (5-6)',6,'amber'],['Heavy (7-8)',8,'amber'],['Pain 9-10',10,'red']],rSore,setRSore],
+                ['Energy level?',[['High',3,'teal'],['Moderate',2,'amber'],['Low',1,'red']],rEnergy,setREnergy],
+                ['Yesterday was?',[['Rest / Easy',0,'teal'],['Moderate',1,'amber'],['Intense',2,'red']],rPrev,setRPrev],
+                ['Hard sessions this week?',[['0',0,'teal'],['1-2',2,'teal'],['3',3,'amber'],['4+',4,'red']],rHard,setRHard],
+                ['Next match?',[['3+ days',3,'teal'],['In 2 days',2,'amber'],['Tomorrow','tomorrow','amber'],['Today','today','red']],rMatch,setRMatch],
               ].map(([label,opts,val,setter])=>(
-                <Card key={label} style={{ marginBottom:8 }}>
-                  <div style={{ fontSize:12,fontWeight:700,marginBottom:8 }}>{label}</div>
-                  <div style={{ display:'flex',flexWrap:'wrap',gap:5 }}>
+                <Card key={label} style={{marginBottom:8}}>
+                  <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>{label}</div>
+                  <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
                     {opts.map(([lbl,v,col])=>{
-                      const sel = val===v;
-                      const bg = sel ? (col==='teal'?C.teal:col==='amber'?C.amber:C.red) : 'white';
-                      return <button key={lbl} onClick={()=>setter(v)} style={{ padding:'4px 10px',borderRadius:20,border:`1px solid ${sel?(col==='teal'?C.teal:col==='amber'?C.amber:C.red):C.border}`,background:bg,color:sel?'white':C.muted,fontSize:11,cursor:'pointer',fontWeight:sel?700:400 }}>{lbl}</button>;
+                      const sel=val===v;
+                      const bg=sel?(col==='teal'?C.teal:col==='amber'?C.amber:C.red):'white';
+                      return <button key={lbl} onClick={()=>setter(v)} style={{padding:'4px 10px',borderRadius:20,border:`1px solid ${sel?(col==='teal'?C.teal:col==='amber'?C.amber:C.red):C.border}`,background:bg,color:sel?'white':C.muted,fontSize:11,cursor:'pointer',fontWeight:sel?700:400}}>{lbl}</button>;
                     })}
                   </div>
                 </Card>
               ))}
-              <button onClick={calcDecision} style={{ width:'100%',padding:11,borderRadius:10,border:'none',background:C.blue,color:'white',fontSize:13,fontWeight:700,cursor:'pointer' }}>→ Get Today's Decision</button>
+
+              {/* Injury toggle */}
+              <Card style={{marginBottom:8}}>
+                <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Active injury?</div>
+                <div style={{display:'flex',gap:6,marginBottom:rInj?8:0}}>
+                  {[['No injury',false,'teal'],['Yes — injured',true,'red']].map(([lbl,v,col])=>{
+                    const sel=rInj===v;
+                    return <button key={lbl} onClick={()=>setRInj(v)} style={{padding:'4px 12px',borderRadius:20,border:`1px solid ${sel?(col==='teal'?C.teal:C.red):C.border}`,background:sel?(col==='teal'?C.teal:C.red):'white',color:sel?'white':C.muted,fontSize:11,cursor:'pointer'}}>{lbl}</button>;
+                  })}
+                </div>
+                {rInj&&(
+                  <div>
+                    <div style={{fontSize:11,color:C.muted,marginBottom:4}}>Injury type:</div>
+                    <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+                      {Object.entries(INJURY_LADDERS).map(([key,inj])=>(
+                        <button key={key} onClick={()=>setInjuryType(key)} style={{padding:'3px 10px',borderRadius:20,border:`1px solid ${injuryType===key?C.red:C.border}`,background:injuryType===key?C.redLt:'white',color:injuryType===key?C.red:C.muted,fontSize:11,cursor:'pointer',fontWeight:injuryType===key?700:400}}>{inj.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Card>
+
+              <button onClick={calcDecision} style={{width:'100%',padding:11,borderRadius:10,border:'none',background:C.blue,color:'white',fontSize:13,fontWeight:700,cursor:'pointer'}}>→ Get Today's Plan</button>
             </div>
+
             <div>
-              {decision && (()=>{
-                const [bg,brd,clr] = colorMap[decision.type];
-                return <div style={{ background:bg,border:`2px solid ${brd}`,borderRadius:10,padding:'1rem 1.25rem' }}>
-                  <div style={{ fontSize:14,fontWeight:700,color:clr,marginBottom:8 }}>{decision.title}</div>
-                  <ul style={{ paddingLeft:'1rem',lineHeight:2.1,fontSize:13,color:clr }}>
+              {decision&&(()=>{
+                const [bg,brd,clr]=colorMap[decision.type];
+                return <div style={{background:bg,border:`2px solid ${brd}`,borderRadius:10,padding:'1rem 1.25rem',marginBottom:'1rem'}}>
+                  <div style={{fontSize:14,fontWeight:700,color:clr,marginBottom:8}}>{decision.title}</div>
+                  <ul style={{paddingLeft:'1rem',lineHeight:2.2,fontSize:13,color:clr}}>
                     {decision.items.map(i=><li key={i}>{i}</li>)}
                   </ul>
                 </div>;
               })()}
               <Sh>Hard Cap Rules</Sh>
               <Card>
-                <div style={{ fontSize:12,color:C.red,fontWeight:700,marginBottom:6 }}>Max 4 HIGH intensity days/week</div>
-                <div style={{ fontSize:12,color:C.muted,lineHeight:1.8 }}>
-                  Sprint sessions ≤ 2/week · Arm finisher sessions ≤ 4/week · Total sessions ≤ 6/week<br/>
-                  Deload weeks: 4, 8, 12 — 60% weights, no PRs
+                <div style={{fontSize:12,color:C.red,fontWeight:700,marginBottom:6}}>Maximum 4 high-intensity sessions per week</div>
+                <div style={{fontSize:12,color:C.muted,lineHeight:1.9}}>
+                  Sprint sessions ≤ 2/week · Strength sessions ≤ 3/week · Total sessions ≤ 6/week<br/>
+                  Deload weeks: 4, 8, 12 — reduce all volume by 40%<br/>
+                  Match day: activation only, no heavy work
                 </div>
               </Card>
-              <Sh>Your Position Focus</Sh>
+              <Sh>Your Position Profile</Sh>
               <Card>
-                <div style={{ display:'flex',gap:12,alignItems:'center',marginBottom:10 }}>
-                  <div style={{ fontSize:32 }}>{pos.emoji}</div>
+                <div style={{display:'flex',gap:12,alignItems:'center',marginBottom:10}}>
+                  <div style={{fontSize:32}}>{pos.emoji}</div>
                   <div>
-                    <div style={{ fontSize:15,fontWeight:700 }}>{pos.label}</div>
-                    <div style={{ fontSize:12,color:C.muted }}>{pos.tagline}</div>
+                    <div style={{fontSize:15,fontWeight:700}}>{pos.label}</div>
+                    <div style={{fontSize:12,color:C.muted}}>{pos.tagline}</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>Gym priority: {pos.gymPriority}</div>
                   </div>
                 </div>
-                {[['Sprint',pos.sprintFocus],['Strength',pos.strengthFocus],['Endurance',pos.enduranceFocus],['Agility',pos.agilityFocus]].map(([k,v])=>(
-                  <div key={k} style={{ display:'flex',gap:6,padding:'4px 0',borderBottom:`0.5px solid ${C.border}`,fontSize:12 }}>
-                    <span style={{ fontWeight:700,color:C.muted,minWidth:72 }}>{k}:</span><span>{v}</span>
+                {[['Speed focus',pos.sprintFocus],['Strength focus',pos.strengthFocus],['Endurance',pos.enduranceFocus],['Agility',pos.agilityFocus]].map(([k,v])=>(
+                  <div key={k} style={{display:'flex',gap:6,padding:'4px 0',borderBottom:`0.5px solid ${C.border}`,fontSize:12}}>
+                    <span style={{fontWeight:700,color:C.muted,minWidth:90}}>{k}:</span><span>{v}</span>
                   </div>
                 ))}
               </Card>
@@ -344,217 +478,313 @@ export default function PlayerView({ player: initPlayer, team, onLogout }) {
         </>}
 
         {/* ══ TRAINING ══ */}
-        {tab==='training' && <>
-          <Sh>12-Week Phase Schedule</Sh>
-          <TblWrap>
-            <thead><tr><Th>Week</Th><Th>Theme</Th><Th>Primary Focus</Th></tr></thead>
-            <tbody>{pos.weeklyThemes.map((theme,i)=>(
-              <tr key={i} style={{ background:theme==='DELOAD'?C.amberLt:i%2===0?C.bg:'white' }}>
-                <Td hl>{i+1}{theme==='DELOAD'?'':`${'·'.repeat(0)}`}</Td>
-                <Td hl>{theme}</Td>
-                <Td>{theme==='DELOAD'?'60% weights · No PRs · 9hrs sleep · Recovery only':`${pos.label}-specific training emphasis`}</Td>
-              </tr>
-            ))}</tbody>
-          </TblWrap>
-          <Sh>Weekly Schedule</Sh>
+        {tab==='training'&&<>
+          <Sh>Role-Based Weekly Structure</Sh>
+          <Hbox color="blue">Every session answers: "What do I do today to help my team perform better?" Training adapts to your position, fatigue, and match schedule.</Hbox>
           <Card>
             {[
-              ['MON','FULL','Conditioning + Achilles armor + Arm finisher'],
-              ['TUE','FULL','GYM: Push Day + Arm Finisher + Band external rotations'],
-              ['WED','LITE','Week A: Tempo + Agility · Week B: TRUE LOW DAY'],
-              ['THU','FULL','GYM: Pull Day + Arm Finisher + Band external rotations'],
-              ['FRI','FULL','GYM: Legs + Full Arm Session'],
-              ['SAT','LITE','★ MAIN SPRINT/TRACK DAY (position-specific protocol)'],
-              ['SUN','LITE','Easy run (optional) + Weekly Check-In + Meal prep'],
-            ].map(([day,sl,desc])=>(
-              <div key={day} style={{ display:'flex',gap:12,alignItems:'flex-start',padding:'8px 0',borderBottom:`1px solid ${C.border}` }}>
-                <div style={{ width:32,height:28,borderRadius:'50%',background:day==='SAT'?'#FAC775':sl==='FULL'?C.blueLt:C.bg,color:day==='SAT'?'#633806':sl==='FULL'?C.blueDk:C.muted,display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:800,flexShrink:0,marginTop:2 }}>{day}</div>
+              ['MON','Conditioning','Aerobic base + position-specific movement patterns'],
+              ['TUE','Performance Strength','Lower body power + upper body stability'],
+              ['WED','Speed + Agility','Position-specific sprint work + reaction drills'],
+              ['THU','Performance Strength','Total body strength + explosive movements'],
+              ['FRI','Technical + Conditioning','Ball work + conditioning circuits'],
+              ['SAT','★ Main Speed Day','Position protocol — maximum quality, full recovery'],
+              ['SUN','Recovery + Check-In','Easy movement + weekly check-in + meal prep'],
+            ].map(([day,type,desc])=>(
+              <div key={day} style={{display:'flex',gap:12,alignItems:'flex-start',padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
+                <div style={{width:32,height:28,borderRadius:'50%',background:day==='SAT'?'#FAC775':day==='SUN'?C.bg:C.blueLt,color:day==='SAT'?'#633806':day==='SUN'?C.muted:C.blueDk,display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:800,flexShrink:0,marginTop:2}}>{day}</div>
                 <div>
-                  <div style={{ fontSize:12,fontWeight:700 }}>{desc}</div>
-                  <div style={{ fontSize:11,color:C.muted,marginTop:2 }}>Solo Leveling: {sl==='FULL'?'Full (100 reps)':'Lite (50 reps)'}</div>
+                  <div style={{fontSize:12,fontWeight:700}}>{type}</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>{desc}</div>
                 </div>
               </div>
             ))}
           </Card>
-          <Sh>Deload Protocol</Sh>
+
+          <Sh>12-Week Phase Schedule — {pos.label}</Sh>
+          <TblWrap>
+            <thead><tr><Th>Week</Th><Th>Theme</Th><Th>Focus</Th></tr></thead>
+            <tbody>{pos.weeklyThemes.map((theme,i)=>(
+              <tr key={i} style={{background:theme==='DELOAD'?C.amberLt:i%2===0?C.bg:'white'}}>
+                <Td hl>{i+1}</Td>
+                <Td hl>{theme}</Td>
+                <Td>{theme==='DELOAD'?'40% volume reduction · No intensity PRs · 9hrs sleep · Active recovery only':`${pos.label} — ${pos.tagline}`}</Td>
+              </tr>
+            ))}</tbody>
+          </TblWrap>
+
+          <Sh>Position-Adaptive Training Logic</Sh>
           <Card>
-            <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1rem',fontSize:12 }}>
-              <div><div style={{ fontWeight:700,marginBottom:6 }}>What changes</div><ul style={{ paddingLeft:'1rem',lineHeight:2,color:C.muted }}><li>60% of normal weights</li><li>2 sets per exercise only</li><li>No arm finishers</li><li>No sprint PR attempts</li><li>Wednesday = full low day</li></ul></div>
-              <div><div style={{ fontWeight:700,marginBottom:6 }}>What stays</div><ul style={{ paddingLeft:'1rem',lineHeight:2,color:C.muted }}><li>Solo Leveling lite daily</li><li>Achilles armor 3×/week</li><li>Full nutrition</li><li>9 hrs sleep nightly</li><li>Visualization</li></ul></div>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Your training is weighted:</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
+              <div style={{background:pos.colorLight,borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:700,color:pos.color}}>{pos.emoji} {pos.label} — 70%</div>
+              {secondaryPos&&<div style={{background:secondaryPos.colorLight,borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:700,color:secondaryPos.color}}>{secondaryPos.emoji} {secondaryPos.label} — 30%</div>}
             </div>
-            <Hbox color="green">Deload is NOT a break. It's where adaptation locks in. You'll come back noticeably stronger.</Hbox>
+            {[['Speed focus',pos.sprintFocus],['Strength focus',pos.strengthFocus],['Endurance',pos.enduranceFocus],['Agility',pos.agilityFocus]].map(([k,v])=>(
+              <div key={k} style={{display:'flex',gap:6,padding:'5px 0',borderBottom:`0.5px solid ${C.border}`,fontSize:12}}>
+                <span style={{fontWeight:700,color:C.muted,minWidth:110}}>{k}:</span><span>{v}</span>
+              </div>
+            ))}
+          </Card>
+
+          <Sh>Deload Protocol (Weeks 4, 8, 12)</Sh>
+          <Card>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1rem',fontSize:12}}>
+              <div><div style={{fontWeight:700,marginBottom:6}}>What changes</div>
+                <ul style={{paddingLeft:'1rem',lineHeight:2,color:C.muted}}><li>60% of normal load</li><li>2 sets per exercise</li><li>No max-effort sprints</li><li>No intensity PRs</li><li>Wednesday = full low day</li></ul>
+              </div>
+              <div><div style={{fontWeight:700,marginBottom:6}}>What stays</div>
+                <ul style={{paddingLeft:'1rem',lineHeight:2,color:C.muted}}><li>Daily movement</li><li>Injury prevention work</li><li>Full nutrition</li><li>9 hrs sleep nightly</li><li>Technical/ball work</li></ul>
+              </div>
+            </div>
+            <Hbox color="green">Deload is where adaptation locks in. You will come back noticeably faster and stronger.</Hbox>
           </Card>
         </>}
 
-        {/* ══ SPRINT ══ */}
-        {tab==='sprint' && <>
-          <Card style={{ borderColor:C.red, background:C.redLt }}>
-            <div style={{ fontSize:12,color:'#7A1F1F',fontWeight:700 }}>🩹 Ankle recovery: no spike sessions until pain-free jogging 5+ consecutive days. Quality rule: if any sprint drops &gt;5% → cut remaining volume.</div>
-          </Card>
-          <Sh>{pos.label} Sprint Protocol</Sh>
+        {/* ══ SPEED SYSTEM ══ */}
+        {tab==='speed'&&<>
+          <Hbox color="red">Quality rule: if any sprint drops more than 5% — stop the session. Speed training is wasted when fatigued.</Hbox>
+          <Sh>{pos.label} Speed Protocol</Sh>
           {pos.sprintSessions.map(session=>(
             <div key={session.phase}>
               <Sh>{session.phase}</Sh>
               <TblWrap>
                 <thead><tr><Th>Distance</Th><Th>Sets</Th><Th>Effort</Th><Th>Rest</Th></tr></thead>
                 <tbody>{session.reps.map((r,i)=>(
-                  <tr key={i} style={{ background:i%2===0?C.bg:'white' }}>
+                  <tr key={i} style={{background:i%2===0?C.bg:'white'}}>
                     <Td hl>{r.dist}</Td><Td>{r.sets}</Td><Td>{r.effort}</Td><Td>{r.rest}</Td>
                   </tr>
                 ))}</tbody>
               </TblWrap>
             </div>
           ))}
-          <Sh>Sprint Phase Progression</Sh>
+
+          <Sh>Speed Phase Progression</Sh>
           <TblWrap>
             <thead><tr><Th>Phase</Th><Th>Weeks</Th><Th>Focus</Th></tr></thead>
             <tbody>
-              <tr style={{ background:C.bg }}><Td hl>1 — Technique</Td><Td>1–4</Td><Td>Mechanics, acceleration, drive phase</Td></tr>
-              <tr><Td hl>2 — Max Velocity</Td><Td>5–8</Td><Td>Top-end speed + plyometrics added</Td></tr>
-              <tr style={{ background:C.bg }}><Td hl>3 — Game Endurance</Td><Td>9–12</Td><Td>Repeat sprint ability, late-game speed</Td></tr>
+              <tr style={{background:C.bg}}><Td hl>1 — Mechanics</Td><Td>1–4</Td><Td>Technique, acceleration, drive phase, curved runs</Td></tr>
+              <tr><Td hl>2 — Max Velocity</Td><Td>5–8</Td><Td>Top-end speed + plyometrics added + ball-involved sprinting</Td></tr>
+              <tr style={{background:C.bg}}><Td hl>3 — Game Endurance</Td><Td>9–12</Td><Td>Repeat sprint ability, reaction sprints, late-game speed</Td></tr>
             </tbody>
           </TblWrap>
-          <Sh>Ankle Return-to-Play Ladder</Sh>
-          <TblWrap>
-            <thead><tr><Th>Stage</Th><Th>Activity</Th><Th>Pass Condition</Th></tr></thead>
-            <tbody>{[
-              ['1 — Walking','Normal walking, Achilles armor daily','Full day zero pain'],
-              ['2 — Light jog','Easy jog 5–10 min','30-min jog no pain'],
-              ['3 — Strides 60%','4×50m strides flat shoes','All pain-free, no limp'],
-              ['4 — Strides 80%','4×60m at 80%, agility at 50%','Ankle symmetric'],
-              ['5 — First sprint','2×30m + 2×60m in spikes, no dead legs','Within 10% of pre-injury'],
-              ['6 — Full protocol','Complete Saturday session','You are back'],
-            ].map(([s,a,p],i)=>(
-              <tr key={i} style={{ background:i%2===0?C.bg:'white' }}><Td hl>{s}</Td><Td>{a}</Td><Td>{p}</Td></tr>
-            ))}</tbody>
-          </TblWrap>
+
+          <Sh>Ball-Involved Speed Work</Sh>
+          <Card>
+            <div style={{fontSize:12,marginBottom:6,fontWeight:700}}>Add these to your speed sessions 1-2x per week:</div>
+            <TblWrap>
+              <thead><tr><Th>Drill</Th><Th>Distance</Th><Th>Reps</Th><Th>Focus</Th></tr></thead>
+              <tbody>{[
+                ['Receive + accelerate','20m','6','First touch into space then sprint — game realistic'],
+                ['Press + recover','15m press + 15m recovery','4','Simulate press then recovery run'],
+                ['Reaction sprint','10m on visual signal','8','Reaction time — keep head up'],
+                ['Curved runs','Arc 25m','5 each side','Attack from wide, cut inside — winger/striker specific'],
+                ['Overlap run','40m','4','Full-pace overlap, receive, cross or shoot'],
+              ].map(([d,dist,reps,focus],i)=>(
+                <tr key={i} style={{background:i%2===0?C.bg:'white'}}><Td hl>{d}</Td><Td>{dist}</Td><Td>{reps}</Td><Td>{focus}</Td></tr>
+              ))}</tbody>
+            </TblWrap>
+          </Card>
+
+          <Sh>Injury Return-to-Play Ladders</Sh>
+          {Object.entries(INJURY_LADDERS).map(([key,ladder])=>(
+            <div key={key}>
+              <Sh>{ladder.label}</Sh>
+              <TblWrap>
+                <thead><tr><Th>Stage</Th><Th>Activity</Th><Th>Pass Condition</Th></tr></thead>
+                <tbody>{ladder.stages.map((s,i)=>(
+                  <tr key={i} style={{background:i%2===0?C.bg:'white'}}><Td hl>{s.stage}</Td><Td>{s.activity}</Td><Td>{s.pass}</Td></tr>
+                ))}</tbody>
+              </TblWrap>
+            </div>
+          ))}
         </>}
 
-        {/* ══ GYM ══ */}
-        {tab==='gym' && <>
-          <Hbox color="blue">Overload: +5 lbs OR 1–2 more reps every session. Shoulder protection: Band external rotations 2×15 on every push + pull day.</Hbox>
-          <div style={{ background:C.purpleLt,borderLeft:`3px solid ${C.purple}`,color:C.purple,borderRadius:'0 6px 6px 0',padding:'7px 11px',marginTop:8,fontSize:12,lineHeight:1.6,marginBottom:'1rem' }}>
-            <strong>{pos.gymPriority}</strong> — Tailored for {pos.label}{secondaryPos?` + ${secondaryPos.label}`:''}. Style: {pos.gymStyle.sets} sets × {pos.gymStyle.reps} reps · {pos.gymStyle.rest} rest.
+        {/* ══ PERFORMANCE STRENGTH ══ */}
+        {tab==='strength'&&<>
+          <Hbox color="blue">Progressive overload: add weight or reps every session. Shoulder protection: band external rotations 2×15 on every upper body day.</Hbox>
+          <div style={{background:C.purpleLt,borderLeft:`3px solid ${C.purple}`,color:C.purple,borderRadius:'0 6px 6px 0',padding:'7px 11px',marginTop:8,fontSize:12,lineHeight:1.6,marginBottom:'1rem'}}>
+            <strong>{pos.gymPriority}</strong> — Built for {pos.label}{secondaryPos?` + ${secondaryPos.label}`:''}.
+            Sets × Reps: {pos.gymStyle.sets} × {pos.gymStyle.reps} · Rest: {pos.gymStyle.rest}
           </div>
+
           {[['Tuesday',gymPlan.tuesday],['Thursday',gymPlan.thursday],['Friday',gymPlan.friday]].map(([day,exercises])=>(
             <div key={day}>
               <Sh>{day}</Sh>
               <TblWrap>
                 <thead><tr><Th>Exercise</Th><Th>Sets × Reps</Th><Th>Tempo</Th><Th>Focus</Th></tr></thead>
                 <tbody>{(exercises||[]).map((ex,i)=>{
-                  const isArm = ex.focus.includes('ARM FINISHER');
-                  const isExtra = ex.focus.startsWith('[');
-                  return <tr key={i} style={{ background:isArm?C.blueLt:isExtra?C.tealLt:i%2===0?C.bg:'white' }}>
+                  const isExtra=ex.focus.startsWith('[');
+                  return <tr key={i} style={{background:isExtra?C.tealLt:i%2===0?C.bg:'white'}}>
                     <Td hl>{ex.ex}</Td><Td>{ex.sets}</Td><Td>{ex.tempo}</Td><Td>{ex.focus}</Td>
                   </tr>;
                 })}</tbody>
               </TblWrap>
             </div>
           ))}
-          <Sh>Arm Lift Log — Track Performance</Sh>
-          <Card>
-            {ARM_LIFTS.map((ex,i)=>{
-              const last = liftLogs.filter(l=>l.exercise===ex)[0];
-              return <div key={i} style={{ display:'grid',gridTemplateColumns:'140px 80px 60px 1fr',gap:8,alignItems:'center',marginBottom:6,fontSize:12 }}>
-                <span style={{ fontWeight:600 }}>{ex}</span>
-                <input type="number" placeholder={last?last.weight_lbs:'lbs'} value={lForm['w'+i]||''} onChange={e=>setLForm(f=>({...f,['w'+i]:e.target.value}))} style={{ padding:'4px 6px',borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,textAlign:'center' }}/>
-                <input type="number" placeholder={last?last.reps:'reps'} value={lForm['r'+i]||''} onChange={e=>setLForm(f=>({...f,['r'+i]:e.target.value}))} style={{ padding:'4px 6px',borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,textAlign:'center' }}/>
-                <span style={{ fontSize:11,color:C.muted }}>{last?`Last: ${last.weight_lbs}lbs × ${last.reps}`:'No log yet'}</span>
-              </div>;
-            })}
-            <button onClick={submitLifts} disabled={lSaving} style={{ padding:'6px 14px',borderRadius:8,border:'none',background:C.teal,color:'white',fontSize:12,fontWeight:700,cursor:'pointer',marginTop:4 }}>{lSaving?'Saving...':'Save Lift Log'}</button>
-          </Card>
+
+          <Sh>Injury Prevention — Always Include</Sh>
+          <TblWrap>
+            <thead><tr><Th>Exercise</Th><Th>Sets × Reps</Th><Th>Why</Th></tr></thead>
+            <tbody>{[
+              ['Nordic hamstring curls','3×5–8 eccentric','Highest-evidence hamstring injury prevention in football'],
+              ['Copenhagen planks','3×20s each side','Groin injury prevention — critical for all positions'],
+              ['Single-leg calf raises (slow)','3×15 each','Achilles + lower leg resilience'],
+              ['Band external rotations','2×15 each','Shoulder health — especially important for goalkeepers'],
+              ['Hip 90/90 mobility','2×60s each','Hip flexor + rotator health for kicking and acceleration'],
+              ['Glute bridges / Hip thrust','3×12','Posterior chain activation + knee stability'],
+            ].map(([ex,sets,why],i)=>(
+              <tr key={i} style={{background:i%2===0?C.bg:'white'}}><Td hl>{ex}</Td><Td>{sets}</Td><Td>{why}</Td></tr>
+            ))}</tbody>
+          </TblWrap>
+
+          <Sh>Training Categories Explained</Sh>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+            {[
+              ['Lower Body Power','Squats, RDLs, lunges, box jumps — force production for sprinting, jumping, tackling'],
+              ['Upper Body Stability','Rows, pull-ups, push-ups, overhead press — not for size, for shoulder health and aerial ability'],
+              ['Total Body Strength','Deadlifts, power cleans, carries — whole-body coordination and physical presence'],
+              ['Core (Anti-rotation)','Planks, dead bugs, Pallof press, carries — the foundation of every movement on the pitch'],
+            ].map(([title,desc])=>(
+              <div key={title} style={{background:C.bg,borderRadius:8,padding:'10px 12px',border:`1px solid ${C.border}`}}>
+                <div style={{fontSize:12,fontWeight:700,marginBottom:4}}>{title}</div>
+                <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>{desc}</div>
+              </div>
+            ))}
+          </div>
         </>}
 
         {/* ══ POSITION IQ ══ */}
-        {tab==='iq' && <>
-          <div style={{ marginBottom:'1rem' }}>
-            <h3 style={{ fontSize:15,fontWeight:800,marginBottom:4 }}>{pos.emoji} {pos.label} IQ Scenarios</h3>
-            <p style={{ fontSize:12,color:C.muted }}>5 scenarios — do them daily before a session. 10 minutes of mental reps without touching a ball.</p>
+        {tab==='iq'&&<>
+          <div style={{marginBottom:'1rem'}}>
+            <h3 style={{fontSize:15,fontWeight:800,marginBottom:4}}>{pos.emoji} {pos.label} Decision Scenarios</h3>
+            <p style={{fontSize:12,color:C.muted}}>10 minutes of mental reps before a session. Real game situations — choose your action and learn the reasoning.</p>
           </div>
-          <IQQuiz scenarios={pos.iq} posLabel={pos.label} posColor={pos.color}/>
-          {secondaryPos && <>
-            <div style={{ margin:'1.5rem 0 1rem',paddingTop:'1rem',borderTop:`1px solid ${C.border}` }}>
-              <h3 style={{ fontSize:15,fontWeight:800,marginBottom:4 }}>{secondaryPos.emoji} {secondaryPos.label} IQ Scenarios</h3>
-              <p style={{ fontSize:12,color:C.muted }}>Secondary position scenarios for your hybrid role.</p>
+          <IQQuiz scenarios={pos.iq} posColor={pos.color}/>
+          {secondaryPos&&<>
+            <div style={{margin:'1.5rem 0 1rem',paddingTop:'1rem',borderTop:`1px solid ${C.border}`}}>
+              <h3 style={{fontSize:15,fontWeight:800,marginBottom:4}}>{secondaryPos.emoji} {secondaryPos.label} Decision Scenarios</h3>
+              <p style={{fontSize:12,color:C.muted}}>Secondary position scenarios for your hybrid role.</p>
             </div>
-            <IQQuiz scenarios={secondaryPos.iq} posLabel={secondaryPos.label} posColor={secondaryPos.color}/>
+            <IQQuiz scenarios={secondaryPos.iq} posColor={secondaryPos.color}/>
           </>}
+
+          <Sh>Your Role in Team Tactics</Sh>
+          <Card>
+            <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>{pos.emoji} {pos.label} — Tactical Responsibilities</div>
+            {[
+              ['In possession',pos.sprintFocus],
+              ['Out of possession',pos.strengthFocus],
+              ['Pressing trigger',pos.agilityFocus],
+              ['Transition priority',pos.enduranceFocus],
+            ].map(([k,v])=>(
+              <div key={k} style={{display:'flex',gap:8,padding:'6px 0',borderBottom:`0.5px solid ${C.border}`,fontSize:12}}>
+                <span style={{fontWeight:700,color:C.muted,minWidth:130}}>{k}:</span><span>{v}</span>
+              </div>
+            ))}
+            {player.coach_focus&&<div style={{marginTop:10,background:C.tealLt,borderRadius:8,padding:'8px 10px',fontSize:12,color:C.tealDk,fontWeight:600}}>📌 Coach this week: {player.coach_focus}</div>}
+          </Card>
         </>}
 
         {/* ══ TACTICS ══ */}
-        {tab==='tactics' && <TacticsView/>}
+        {tab==='tactics'&&<TacticsView/>}
 
         {/* ══ LINEUP ══ */}
-        {tab==='lineup' && <LineupView team={team} isCoach={false} currentPlayerId={player.id}/>}
+        {tab==='lineup'&&<LineupView team={team} isCoach={false} currentPlayerId={player.id}/>}
 
         {/* ══ NUTRITION ══ */}
-        {tab==='nutrition' && <>
-          <div style={{ display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:'1rem' }}>
-            {[['Calories',nutrition.calories,'cal'],[`Protein`,nutrition.protein,'g'],['Carbs',nutrition.carbs,'g'],['Fats',nutrition.fat,'g']].map(([l,v,u])=>(
-              <Card key={l} style={{ textAlign:'center',padding:'.875rem',marginBottom:0 }}>
-                <div style={{ fontSize:22,fontWeight:800,color:C.blue }}>{v}</div>
-                <div style={{ fontSize:11,color:C.muted }}>{l} {u}</div>
+        {tab==='nutrition'&&<>
+          <Sh>Nutrition by Day Type</Sh>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:'1rem'}}>
+            {[
+              ['Match Day',C.red,C.redLt,'High carbs from the night before. Light breakfast 3-4 hrs before KO. No heavy meals. Hydrate all day. Post-match: protein + carbs within 30 min.'],
+              ['Training Day',C.blue,C.blueLt,'Moderate-high carbs. Pre-session meal 2 hrs before. Post-session recovery within 30 min. Protein at every meal.'],
+              ['Recovery Day',C.teal,C.tealLt,'Lower carbs, higher protein. Focus on anti-inflammatory foods. Extra hydration. Sleep-supporting foods in the evening.'],
+              ['Rest Day',C.amber,C.amberLt,'Eat to fuel the next day, not the current day. Moderate calories. Quality whole foods. No reason to undereat — muscles repair at rest.'],
+            ].map(([type,color,bg,desc])=>(
+              <div key={type} style={{background:bg,borderRadius:10,padding:'10px 12px',border:`1px solid ${color}20`}}>
+                <div style={{fontSize:12,fontWeight:800,color,marginBottom:5}}>{type}</div>
+                <div style={{fontSize:11,color:C.muted,lineHeight:1.7}}>{desc}</div>
+              </div>
+            ))}
+          </div>
+
+          <Sh>Your Daily Targets</Sh>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:'1rem'}}>
+            {[['Calories',nutrition.calories,'cal'],['Protein',nutrition.protein,'g'],['Carbs',nutrition.carbs,'g'],['Fats',nutrition.fat,'g']].map(([l,v,u])=>(
+              <Card key={l} style={{textAlign:'center',padding:'.875rem',marginBottom:0}}>
+                <div style={{fontSize:22,fontWeight:800,color:C.blue}}>{v}</div>
+                <div style={{fontSize:11,color:C.muted}}>{l} {u}</div>
               </Card>
             ))}
           </div>
           <Hbox color="amber">{pos.carbTiming}</Hbox>
-          <Hbox color="blue">{nutrition.note}</Hbox>
-          <Sh>Daily Meal Plan</Sh>
-          <TblWrap>
-            <thead><tr><Th>Meal</Th><Th>Timing</Th><Th>Food</Th><Th>Macros</Th></tr></thead>
-            <tbody>{[
-              ['Breakfast','After AM routine','3–4 eggs + 1 cup oats + banana + coffee','~50P · 80C · 15F'],
-              ['Pre-workout','30–60 min before','Greek yogurt + granola + apple','~20P · 50C · 5F'],
-              ['Post-workout','Within 30 min','1.5 cups rice + 6oz chicken + veggies','~55P · 90C · 8F'],
-              ['Lunch','Midday','Chicken/tuna wrap + fruit + water','~40P · 60C · 10F'],
-              ['Afternoon','3–4 PM','Peanut butter + bread + milk/shake','~25P · 40C · 15F'],
-              ['Dinner','Evening','Ground beef + potatoes/pasta + salad','~50P · 80C · 20F'],
-              ['Before bed','30–60 min prior','Cottage cheese or casein shake','~25P · 10C · 5F'],
-            ].map(([m,t,f,macro],i)=>(
-              <tr key={i} style={{ background:i%2===0?C.bg:'white' }}><Td hl>{m}</Td><Td>{t}</Td><Td>{f}</Td><Td>{macro}</Td></tr>
-            ))}</tbody>
-          </TblWrap>
-          <Sh>Check-In Adjustments</Sh>
-          {checkins[0]?.adjustments?.length ? checkins[0].adjustments.map((a,i)=>(
-            <div key={i} style={{ background:C.amberLt,border:`1px solid ${C.amber}`,borderRadius:8,padding:'8px 11px',marginBottom:6,fontSize:12 }}>
-              <div style={{ fontWeight:700 }}>{a.t}</div><div style={{ color:C.muted,marginTop:2 }}>{a.d}</div>
-            </div>
-          )) : <div style={{ color:C.muted,fontSize:13 }}>Complete a check-in to unlock adaptive nutrition adjustments.</div>}
+
+          <Sh>Hydration Rules</Sh>
+          <Card>
+            <TblWrap>
+              <thead><tr><Th>When</Th><Th>Target</Th></tr></thead>
+              <tbody>{[
+                ['Morning (on waking)','500ml water immediately'],
+                ['2 hours before training','500ml water'],
+                ['During training','200-300ml every 20 minutes'],
+                ['Post training','500-750ml + electrolytes if sweating heavily'],
+                ['Match day (all day)','3-4L total — start hydrating the night before'],
+                ['Recovery days','2-3L minimum'],
+              ].map(([when,target],i)=>(
+                <tr key={i} style={{background:i%2===0?C.bg:'white'}}><Td hl>{when}</Td><Td>{target}</Td></tr>
+              ))}</tbody>
+            </TblWrap>
+          </Card>
+
+          <Sh>Timing Principles</Sh>
+          <Card>
+            {[
+              ['Pre-session (2-3 hrs)','Carb-dominant meal. Rice, pasta, bread, oats. Light protein. Low fat and fiber — digests faster.'],
+              ['Pre-session (30-60 min)','Small carb snack only. Banana, rice cake, small yogurt. Nothing heavy.'],
+              ['During session (60+ min)','Simple carbs if session is over 60 min. Fruit, sports drink, dates.'],
+              ['Post-session (within 30 min)','Protein + carbs immediately. Critical recovery window. Shake + banana or chicken + rice.'],
+            ].map(([t,d])=>(
+              <div key={t} style={{display:'flex',gap:10,padding:'7px 0',borderBottom:`0.5px solid ${C.border}`,fontSize:12}}>
+                <span style={{fontWeight:700,color:C.muted,minWidth:150,flexShrink:0}}>{t}</span><span>{d}</span>
+              </div>
+            ))}
+          </Card>
         </>}
 
         {/* ══ GAME LOG ══ */}
-        {tab==='game' && <>
+        {tab==='game'&&<>
           <Sh>Log a Game</Sh>
           <Card>
-            <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:8 }}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:8}}>
               <Inp label="Date" type="date" value={gForm.date||''} onChange={e=>setGForm(f=>({...f,date:e.target.value}))}/>
               <Inp label="Opponent" placeholder="e.g. FC Rivals" value={gForm.opponent||''} onChange={e=>setGForm(f=>({...f,opponent:e.target.value}))}/>
               <Inp label="Minutes played" type="number" placeholder="90" value={gForm.minutes||''} onChange={e=>setGForm(f=>({...f,minutes:e.target.value}))}/>
             </div>
-            <div style={{ fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:'uppercase',letterSpacing:'.6px' }}>{pos.label} Stats</div>
-            <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))',gap:8,marginBottom:12 }}>
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:'uppercase',letterSpacing:'.6px'}}>{pos.label} Stats</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))',gap:8,marginBottom:12}}>
               {pos.gameStats.map(k=>(
                 <Inp key={k} label={pos.gameStatLabels[k]} type="number" min="0" placeholder="0" value={gForm[k]||''} onChange={e=>setGForm(f=>({...f,[k]:e.target.value}))}/>
               ))}
             </div>
-            <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8 }}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
               <Inp label="Self-rating (1–10)" type="number" min="1" max="10" placeholder="7" value={gForm.self_rating||''} onChange={e=>setGForm(f=>({...f,self_rating:e.target.value}))}/>
-              <Inp label="Run/tactic that worked" placeholder="e.g. Spin behind" value={gForm.run_worked||''} onChange={e=>setGForm(f=>({...f,run_worked:e.target.value}))}/>
+              <Inp label="What worked" placeholder="e.g. Press triggers sharp" value={gForm.run_worked||''} onChange={e=>setGForm(f=>({...f,run_worked:e.target.value}))}/>
             </div>
-            <Inp label="Notes (one worked / one to fix)" placeholder="e.g. Press angles sharp / late-game energy dropped" value={gForm.notes||''} onChange={e=>setGForm(f=>({...f,notes:e.target.value}))}/>
-            <button onClick={submitGame} disabled={gSaving} style={{ padding:'7px 18px',borderRadius:8,border:'none',background:C.teal,color:'white',fontSize:12,fontWeight:700,cursor:'pointer' }}>{gSaving?'Saving...':'Save Game →'}</button>
+            <Inp label="Notes (1 worked / 1 to fix)" placeholder="e.g. Positioning sharp / late-game energy dropped" value={gForm.notes||''} onChange={e=>setGForm(f=>({...f,notes:e.target.value}))}/>
+            <button onClick={submitGame} disabled={gSaving} style={{padding:'7px 18px',borderRadius:8,border:'none',background:C.teal,color:'white',fontSize:12,fontWeight:700,cursor:'pointer'}}>{gSaving?'Saving...':'Save Game →'}</button>
           </Card>
+
           <Sh>Game History</Sh>
-          {games.length === 0 ? <div style={{ color:C.muted,fontSize:13 }}>No games logged yet.</div> : (
-            <div style={{ overflowX:'auto' }}>
-              <table style={{ width:'100%',borderCollapse:'collapse',fontSize:12 }}>
-                <thead><tr>{['Date','Opponent','Mins',...pos.gameStats.map(k=>pos.gameStatLabels[k]),'Rating','Run'].map(h=><Th key={h}>{h}</Th>)}</tr></thead>
+          {games.length===0?<div style={{color:C.muted,fontSize:13}}>No games logged yet.</div>:(
+            <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                <thead><tr>{['Date','Opponent','Min',...pos.gameStats.map(k=>pos.gameStatLabels[k]),'Rating','Notes'].map(h=><Th key={h}>{h}</Th>)}</tr></thead>
                 <tbody>{games.map((g,i)=>(
-                  <tr key={g.id} style={{ background:i%2===0?C.bg:'white' }}>
+                  <tr key={g.id} style={{background:i%2===0?C.bg:'white'}}>
                     <Td>{g.game_date}</Td><Td>{g.opponent||'—'}</Td><Td>{g.minutes_played}'</Td>
                     {pos.gameStats.map(k=><Td key={k} hl={k==='goals'||k==='saves'}>{g.stats?.[k]??'—'}</Td>)}
-                    <Td><span style={{ fontWeight:700,color:g.self_rating>=8?C.teal:g.self_rating>=6?C.amber:C.red }}>{g.self_rating||'—'}</span></Td>
+                    <Td><span style={{fontWeight:700,color:g.self_rating>=8?C.teal:g.self_rating>=6?C.amber:C.red}}>{g.self_rating||'—'}</span></Td>
                     <Td>{g.run_worked||'—'}</Td>
                   </tr>
                 ))}</tbody>
@@ -564,81 +794,101 @@ export default function PlayerView({ player: initPlayer, team, onLogout }) {
         </>}
 
         {/* ══ CHECK-IN ══ */}
-        {tab==='checkin' && <>
-          <Sh>Sunday Weekly Check-In</Sh>
-          <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1rem' }}>
+        {tab==='checkin'&&<>
+          <Sh>Weekly Check-In — Complete Every Sunday</Sh>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1rem'}}>
             <Card>
-              <div style={{ display:'grid',gap:6 }}>
+              <div style={{display:'grid',gap:6}}>
                 <Inp label="Weight (lbs)" type="number" placeholder="e.g. 172" value={ciForm.weight_lbs} onChange={e=>setCiForm(f=>({...f,weight_lbs:e.target.value}))}/>
                 <Inp label="Best 40m sprint (s)" type="number" step="0.01" placeholder="e.g. 4.9" value={ciForm.sprint_40m} onChange={e=>setCiForm(f=>({...f,sprint_40m:e.target.value}))}/>
-                <Inp label="Best bench press (lbs)" type="number" placeholder="e.g. 165" value={ciForm.bench_lbs} onChange={e=>setCiForm(f=>({...f,bench_lbs:e.target.value}))}/>
                 <Inp label="Avg sleep (hrs/night)" type="number" step="0.5" placeholder="e.g. 7.5" value={ciForm.sleep_avg} onChange={e=>setCiForm(f=>({...f,sleep_avg:e.target.value}))}/>
                 <Inp label="Overall energy (1–10)" type="number" min="1" max="10" placeholder="e.g. 7" value={ciForm.energy_avg} onChange={e=>setCiForm(f=>({...f,energy_avg:e.target.value}))}/>
                 <Inp label="Avg soreness (1–10)" type="number" min="1" max="10" placeholder="e.g. 4" value={ciForm.soreness_avg} onChange={e=>setCiForm(f=>({...f,soreness_avg:e.target.value}))}/>
-                <Inp label="Days completed" type="number" min="0" max="7" placeholder="e.g. 6" value={ciForm.days_completed} onChange={e=>setCiForm(f=>({...f,days_completed:e.target.value}))}/>
-                <button onClick={submitCheckin} disabled={ciSaving} style={{ padding:'8px',borderRadius:8,border:'none',background:C.teal,color:'white',fontSize:12,fontWeight:700,cursor:'pointer' }}>{ciSaving?'Saving...':'Save Check-In →'}</button>
-                {ciMsg && <div style={{ fontSize:12,color:C.tealDk,fontWeight:600,padding:'6px 8px',background:C.tealLt,borderRadius:8 }}>{ciMsg}</div>}
+                <Inp label="Training days completed" type="number" min="0" max="7" placeholder="e.g. 5" value={ciForm.days_trained} onChange={e=>setCiForm(f=>({...f,days_trained:e.target.value}))}/>
+                <Inp label="Minutes played this week" type="number" placeholder="e.g. 90" value={ciForm.minutes_played} onChange={e=>setCiForm(f=>({...f,minutes_played:e.target.value}))}/>
+                <Inp label="Team training sessions attended" type="number" min="0" max="7" placeholder="e.g. 3" value={ciForm.training_attended} onChange={e=>setCiForm(f=>({...f,training_attended:e.target.value}))}/>
+                <button onClick={submitCheckin} disabled={ciSaving} style={{padding:'8px',borderRadius:8,border:'none',background:C.teal,color:'white',fontSize:12,fontWeight:700,cursor:'pointer'}}>{ciSaving?'Saving...':'Save Check-In →'}</button>
+                {ciMsg&&<div style={{fontSize:12,color:C.tealDk,fontWeight:600,padding:'6px 8px',background:C.tealLt,borderRadius:8}}>{ciMsg}</div>}
               </div>
             </Card>
             <Card>
-              <div style={{ fontSize:12,fontWeight:700,marginBottom:8 }}>Check-In History</div>
-              {checkins.length===0 ? <div style={{ color:C.muted,fontSize:12 }}>No check-ins yet.</div> : (
-                <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(75px,1fr))',gap:6 }}>
+              <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Check-In History</div>
+              {checkins.length===0?<div style={{color:C.muted,fontSize:12}}>No check-ins yet.</div>:(
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(75px,1fr))',gap:6}}>
                   {checkins.slice(0,8).map(ci=>(
-                    <div key={ci.id} style={{ background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:'8px',textAlign:'center' }}>
-                      <div style={{ fontSize:10,color:C.muted }}>{ci.week_date}</div>
-                      {ci.weight_lbs&&<div style={{ fontSize:12,fontWeight:700 }}>{ci.weight_lbs}</div>}
-                      {ci.sprint_40m&&<div style={{ fontSize:11,color:C.muted }}>{ci.sprint_40m}s</div>}
-                      <div style={{ fontSize:11,color:ci.days_completed>=5?C.teal:C.amber }}>{ci.days_completed}/7d</div>
+                    <div key={ci.id} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:'8px',textAlign:'center'}}>
+                      <div style={{fontSize:10,color:C.muted}}>{ci.week_date}</div>
+                      {ci.weight_lbs&&<div style={{fontSize:12,fontWeight:700}}>{ci.weight_lbs}</div>}
+                      {ci.sprint_40m&&<div style={{fontSize:11,color:C.muted}}>{ci.sprint_40m}s</div>}
+                      <div style={{fontSize:11,color:(ci.days_trained||ci.days_completed||0)>=5?C.teal:C.amber}}>{ci.days_trained||ci.days_completed||0}/7d</div>
+                      {ci.minutes_played&&<div style={{fontSize:10,color:C.muted}}>{ci.minutes_played}min</div>}
                     </div>
                   ))}
                 </div>
               )}
+              {checkins[0]?.adjustments?.length>0&&<>
+                <div style={{fontSize:11,fontWeight:700,color:C.muted,margin:'10px 0 6px',textTransform:'uppercase',letterSpacing:'.6px'}}>This week's adjustments</div>
+                {checkins[0].adjustments.map((a,i)=>(
+                  <div key={i} style={{background:C.amberLt,border:`1px solid ${C.amber}`,borderRadius:8,padding:'7px 10px',marginBottom:5,fontSize:12}}>
+                    <div style={{fontWeight:700}}>{a.t}</div><div style={{color:C.muted,marginTop:2}}>{a.d}</div>
+                  </div>
+                ))}
+              </>}
             </Card>
           </div>
         </>}
 
         {/* ══ PROGRESS ══ */}
-        {tab==='progress' && <>
-          <Sh>Superhuman Score</Sh>
-          <Card>
-            <div style={{ display:'grid',gridTemplateColumns:'100px 1fr',gap:'1rem',alignItems:'center' }}>
-              <div style={{ textAlign:'center' }}>
-                <div style={{ width:80,height:80,borderRadius:'50%',border:`4px solid ${scoreData.total>=80?C.teal:scoreData.total>=60?C.amber:C.red}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,fontWeight:800,color:scoreData.total>=80?C.teal:scoreData.total>=60?C.amber:C.red,margin:'0 auto 6px' }}>{scoreData.total||'—'}</div>
-                <div style={{ fontSize:11,fontWeight:700,color:C.muted }}>{scoreData.total>=80?'Elite':scoreData.total>=60?'Building':'Foundation'}</div>
-              </div>
-              <div>
-                {[['Sprint',scoreData.sprint,C.blue],['Strength',scoreData.strength,C.teal],['Consistency',scoreData.consistency,C.amber],['Soccer',scoreData.soccer,'#5B3FA8']].map(([l,v,c])=>(
-                  <div key={l} style={{ marginBottom:8 }}>
-                    <div style={{ display:'flex',justifyContent:'space-between',fontSize:11,marginBottom:2 }}><span>{l}</span><span style={{ fontWeight:700 }}>{v??'—'}%</span></div>
-                    <Bar value={v} color={c}/>
-                  </div>
-                ))}
-                {!scoreData.hasSoccer && <div style={{ fontSize:11,color:C.muted,marginTop:4 }}>Log 2+ games to unlock Soccer score</div>}
-              </div>
-            </div>
+        {tab==='progress'&&<>
+          <Sh>Performance Index — Your Development Profile</Sh>
+          <Hbox color="blue">This is your personal development profile — not a competition. Track your own growth over time.</Hbox>
+          <Card style={{marginTop:8}}>
+            <PerformanceRadar {...perfIndex}/>
           </Card>
-          <Sh>Measurements Log</Sh>
-          <Card>
-            <TblWrap>
-              <thead><tr><Th>Measurement</Th><Th>Wk 1</Th><Th>Wk 4</Th><Th>Wk 8</Th><Th>Wk 12</Th></tr></thead>
-              <tbody>{[['Weight (lbs)','mw'],['Arm (in, unflexed)','ma'],['40m sprint (s)','ms'],['Bench (lbs)','mb'],['Vertical (in)','mv']].map(([l,k])=>(
-                <tr key={k}><Td hl>{l}</Td>{[1,4,8,12].map(w=>{
-                  const m = measurements.find(m=>m.measured_at===`${new Date().getFullYear()}-W${String(w).padStart(2,'0')}`);
-                  return <Td key={w}><input type="number" defaultValue={m?.[k.replace('m','')+k.slice(1)]||''} style={{ width:65,padding:'3px 5px',borderRadius:6,border:`1px solid ${C.border}`,fontSize:11,textAlign:'center' }}/></Td>;
-                })}</tr>
-              ))}</tbody>
-            </TblWrap>
-          </Card>
-          <Sh>Performance KPIs — {pos.label}</Sh>
+
+          <Sh>Position KPIs — {pos.label}</Sh>
           <Card>
             {pos.kpis.map(kpi=>(
-              <div key={kpi} style={{ display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderBottom:`0.5px solid ${C.border}`,fontSize:12 }}>
-                <span style={{ width:8,height:8,borderRadius:'50%',background:C.blue,display:'inline-block',flexShrink:0 }}></span>
+              <div key={kpi} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderBottom:`0.5px solid ${C.border}`,fontSize:12}}>
+                <span style={{width:8,height:8,borderRadius:'50%',background:pos.color,display:'inline-block',flexShrink:0}}></span>
                 <span>{kpi}</span>
               </div>
             ))}
           </Card>
+
+          <Sh>Sprint Progress</Sh>
+          <Card>
+            {checkins.length===0?<div style={{color:C.muted,fontSize:12}}>Complete check-ins to track sprint progress.</div>:(
+              <TblWrap>
+                <thead><tr><Th>Date</Th><Th>40m Sprint</Th><Th>Weight</Th><Th>Days Trained</Th><Th>Min Played</Th></tr></thead>
+                <tbody>{checkins.slice(0,8).map((ci,i)=>(
+                  <tr key={ci.id} style={{background:i%2===0?C.bg:'white'}}>
+                    <Td>{ci.week_date}</Td>
+                    <Td hl>{ci.sprint_40m?`${ci.sprint_40m}s`:'—'}</Td>
+                    <Td>{ci.weight_lbs?`${ci.weight_lbs} lbs`:'—'}</Td>
+                    <Td>{ci.days_trained||ci.days_completed||'—'}/7</Td>
+                    <Td>{ci.minutes_played||'—'}</Td>
+                  </tr>
+                ))}</tbody>
+              </TblWrap>
+            )}
+          </Card>
+
+          <Sh>Game Performance Trend</Sh>
+          {games.length===0?<div style={{color:C.muted,fontSize:13}}>Log games to track match performance.</div>:(
+            <Card>
+              <TblWrap>
+                <thead><tr><Th>Date</Th><Th>Opponent</Th><Th>Min</Th>{pos.gameStats.slice(0,3).map(k=><Th key={k}>{pos.gameStatLabels[k]}</Th>)}<Th>Rating</Th></tr></thead>
+                <tbody>{games.slice(0,8).map((g,i)=>(
+                  <tr key={g.id} style={{background:i%2===0?C.bg:'white'}}>
+                    <Td>{g.game_date}</Td><Td>{g.opponent||'—'}</Td><Td>{g.minutes_played}'</Td>
+                    {pos.gameStats.slice(0,3).map(k=><Td key={k}>{g.stats?.[k]??'—'}</Td>)}
+                    <Td><span style={{fontWeight:700,color:g.self_rating>=8?C.teal:g.self_rating>=6?C.amber:C.red}}>{g.self_rating||'—'}</span></Td>
+                  </tr>
+                ))}</tbody>
+              </TblWrap>
+            </Card>
+          )}
         </>}
 
       </div>
