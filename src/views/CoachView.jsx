@@ -51,9 +51,12 @@ function PlayerCard({ player, checkins, games, onAssign }) {
   const flagged = (latestCI?.days_completed || 0) < 3 || (latestCI?.sleep_avg || 8) < 6;
 
   async function saveAssignment() {
-    setSaving(true); setSaved(false);
-    await updatePlayer(player.id, { coach_note: assignNote, coach_focus: assignFocus });
-    setSaving(false); setSaved(true);
+    setSaving(true);
+    try {
+      await updatePlayer(player.id, { coach_note: assignNote, coach_focus: assignFocus });
+    } catch(e) {}
+    setSaving(false);
+    setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
 
