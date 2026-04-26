@@ -6,6 +6,12 @@ import TacticsView from './TacticsView';
 import LineupView from './LineupView';
 import ScheduleView from './ScheduleView';
 
+function fmt12(t) {
+  if (!t) return '';
+  const [h,m]=t.split(':').map(Number);
+  return `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`;
+}
+
 const C = {
   bg:'#F8F8F6',card:'#fff',border:'#E0DED7',text:'#18181A',muted:'#6B6A66',
   teal:'#1D9E75',tealDk:'#085041',tealLt:'#E1F5EE',
@@ -318,13 +324,13 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
       items=['No structured training today','15-min easy walk maximum','Full nutrition + extra hydration','9+ hours sleep tonight','Foam roll and light stretch only'];
     } else if (effectiveMatch==='today') {
       type='amber'; title='🟡 Match Day — Activation Only';
-      items=[`${nextGame?.title||'Match'} today${nextGame?.start_time?' at '+nextGame.start_time:''}${nextGame?.location?' · '+nextGame.location:''}`,
+      items=[`${nextGame?.title||'Match'} today${nextGame?.start_time?' at '+fmt12(nextGame.start_time):''}${nextGame?.location?' · '+nextGame.location:''}`,
         'Pre-match activation only — 15 min max','No heavy lifting or high-intensity running',
         'Focus on sleep and match nutrition today',
         pos.label+' pre-match: '+pos.sprintFocus.split('+')[0].trim()];
     } else if (effectiveMatch==='tomorrow') {
       type='amber'; title='🟡 Match Tomorrow — Light Technical Work';
-      items=[`${nextGame?.title||'Match'} tomorrow${nextGame?.start_time?' at '+nextGame.start_time:''}`,
+      items=[`${nextGame?.title||'Match'} tomorrow${nextGame?.start_time?' at '+fmt12(nextGame.start_time):''}`,
         'Light technical work + mobility only','No max-effort sprints or heavy strength work',
         'Team training only if coach scheduled it','Prioritize sleep and hydration tonight'];
     } else if (matchIn2) {
@@ -332,7 +338,7 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
       items=['Moderate intensity — 70% max effort','Short sharp speed work only (under 30m)','Strength at reduced weight — skip heavy compounds','Prioritize sleep tonight'];
     } else if (practiceToday&&practiceHighIntensity) {
       type='amber'; title=`🟡 Team Practice Today — ${nextPractice?.intensity_level} Intensity`;
-      items=[`${nextPractice?.title||'Practice'} today${nextPractice?.start_time?' at '+nextPractice.start_time:''}${nextPractice?.location?' · '+nextPractice.location:''}`,
+      items=[`${nextPractice?.title||'Practice'} today${nextPractice?.start_time?' at '+fmt12(nextPractice.start_time):''}${nextPractice?.location?' · '+nextPractice.location:''}`,
         'Complete warm-up and mobility only before practice','Save your energy for the team session',
         nextPractice?.coach_focus?`Coach focus: ${nextPractice.coach_focus}`:'Give full effort in the team session'];
     } else if (rHard>=3||rSleep===6||rSore>=6||rEnergy===2) {
@@ -342,7 +348,7 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
       type='green'; title='🟢 Full Training Session';
       items=['Execute today\'s full session at full effort','Push for progression on main compound lifts',
         pos.label+': '+pos.sprintFocus,
-        practiceToday?`Team practice today${nextPractice?.start_time?' at '+nextPractice.start_time:''} — adjust volume accordingly`:'Prioritize post-session nutrition and recovery'];
+        practiceToday?`Team practice today${nextPractice?.start_time?' at '+fmt12(nextPractice.start_time):''} — adjust volume accordingly`:'Prioritize post-session nutrition and recovery'];
     }
     setDecision({type,title,items});
   }
@@ -487,7 +493,7 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
                   </div>
                   <div style={{fontSize:13,fontWeight:700,color:'white'}}>{nextEvent.title}{nextEvent.opponent?` vs ${nextEvent.opponent}`:''}</div>
                   <div style={{fontSize:11,opacity:.75,marginTop:2}}>
-                    {nextEvent.start_time&&nextEvent.start_time+' · '}{nextEvent.location||''}
+                    {nextEvent.start_time&&fmt12(nextEvent.start_time)+' · '}{nextEvent.location||''}
                     {nextEvent.field_number&&` · ${nextEvent.field_number}`}
                   </div>
                   {nextEvent.coach_focus&&<div style={{fontSize:11,opacity:.85,marginTop:2}}>📌 {nextEvent.coach_focus}</div>}
@@ -696,7 +702,7 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
                         <div>
                           <div style={{fontSize:10,fontWeight:700,color:tc,marginBottom:2}}>{evt.type.toUpperCase()} · {dUntil===0?'TODAY':dUntil===1?'TOMORROW':`IN ${dUntil} DAYS`}</div>
                           <div style={{fontSize:12,fontWeight:700}}>{evt.title}{evt.opponent?` vs ${evt.opponent}`:''}</div>
-                          <div style={{fontSize:11,color:C.muted}}>{evt.start_time&&evt.start_time+' · '}{evt.location}</div>
+                          <div style={{fontSize:11,color:C.muted}}>{evt.start_time&&fmt12(evt.start_time)+' · '}{evt.location}</div>
                         </div>
                         <span style={{fontSize:10,padding:'2px 7px',borderRadius:20,fontWeight:700,background:myAtt?.status==='Confirmed'?C.tealLt:myAtt?.status==='Unavailable'?C.redLt:C.bg,color:myAtt?.status==='Confirmed'?C.teal:myAtt?.status==='Unavailable'?C.red:C.muted}}>{myAtt?.status||'Not Responded'}</span>
                       </div>

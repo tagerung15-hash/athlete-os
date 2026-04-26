@@ -2,6 +2,14 @@
 import { useState, useEffect } from 'react';
 import { getEvents, createEvent, updateEvent, deleteEvent, getAttendanceForEvent, getPlayersByTeam } from '../lib/supabase';
 
+function fmt12(time24) {
+  if (!time24) return '';
+  const [h, m] = time24.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m).padStart(2,'0')} ${ampm}`;
+}
+
 const C = {
   bg:'#F8F8F6',card:'#fff',border:'#E0DED7',text:'#18181A',muted:'#6B6A66',
   teal:'#1D9E75',tealDk:'#085041',tealLt:'#E1F5EE',
@@ -237,7 +245,7 @@ export default function ScheduleView({team,isCoach}) {
                   <div style={{fontSize:14,fontWeight:800}}>{event.title}{event.opponent?` vs ${event.opponent}`:''}</div>
                   <div style={{display:'flex',gap:12,flexWrap:'wrap',marginTop:3}}>
                     <span style={{fontSize:12,color:C.muted}}>📅 {new Date(event.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})}</span>
-                    {event.start_time&&<span style={{fontSize:12,color:C.muted}}>🕐 {event.start_time}{event.end_time?` – ${event.end_time}`:''}</span>}
+                    {event.start_time&&<span style={{fontSize:12,color:C.muted}}>🕐 {fmt12(event.start_time)}{event.end_time?` – ${fmt12(event.end_time)}`:''}</span>}
                     {event.location&&<span style={{fontSize:12,color:C.muted}}>📍 {event.location}{event.field_number?` · ${event.field_number}`:''}</span>}
                   </div>
                   {event.coach_focus&&<div style={{fontSize:11,color:C.blueDk,marginTop:4,fontWeight:600}}>📌 {event.coach_focus}</div>}
