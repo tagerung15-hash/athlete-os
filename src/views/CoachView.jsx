@@ -57,7 +57,17 @@ function PlayerCard({ player, checkins, games, onAssign }) {
     } catch(e) {}
     setSaving(false);
     setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    // Use DOM to show saved — bypasses React re-render timing issues
+    const btn = document.getElementById(`save-btn-${player.id}`);
+    if (btn) {
+      btn.textContent = '✓ Saved!';
+      btn.style.background = '#1D9E75';
+      setTimeout(() => {
+        btn.textContent = 'Save Assignment';
+        btn.style.background = '#185FA5';
+        setSaved(false);
+      }, 3000);
+    }
   }
 
   return (
@@ -148,10 +158,9 @@ function PlayerCard({ player, checkins, games, onAssign }) {
             <label style={{ fontSize: 11, color: C.blueDk, display: 'block', marginBottom: 3 }}>Coach note (visible to player)</label>
             <input value={assignNote} onChange={e => setAssignNote(e.target.value)} placeholder="e.g. Work on press angles this week" style={{ width: '100%', padding: '6px 8px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, marginBottom: 8, fontFamily: 'inherit' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <button onClick={saveAssignment} disabled={saving} style={{ padding: '6px 16px', borderRadius: 8, border: 'none', background: saved ? C.teal : C.blue, color: 'white', fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'background .3s' }}>
-                {saving ? 'Saving...' : saved ? '✓ Saved!' : 'Save Assignment'}
+              <button id={`save-btn-${player.id}`} onClick={saveAssignment} disabled={saving} style={{ padding: '6px 16px', borderRadius: 8, border: 'none', background: C.blue, color: 'white', fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'background .3s' }}>
+                {saving ? 'Saving...' : 'Save Assignment'}
               </button>
-              {saved && <span style={{ fontSize: 11, color: C.teal, fontWeight: 700 }}>Player will see this next time they open the app.</span>}
             </div>
           </div>
         </div>
