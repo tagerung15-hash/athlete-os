@@ -143,7 +143,6 @@ export default function PlayerView({ player: initPlayer, team, onLogout }) {
   const [lSaving, setLSaving] = useState(false);
 
   const pos = POSITIONS[player.position] || POSITIONS.striker;
-  const pos = POSITIONS[player.position] || POSITIONS.striker;
   const secondaryPos = player.secondary_position ? POSITIONS[player.secondary_position] : null;
   const nutrition = calcNutrition(player);
   const latestCI = checkins[0];
