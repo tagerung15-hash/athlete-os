@@ -1,7 +1,7 @@
 // src/views/CoachView.jsx
 import { useState, useEffect } from 'react';
 import { getTeamSnapshot, updatePlayer } from '../lib/supabase';
-import { POSITIONS, GYM_FOCUSES, calcNutrition, calcScore } from '../lib/config';
+import { POSITIONS, calcNutrition, calcScore } from '../lib/config';
 import LineupView from './LineupView';
 
 const C = {
@@ -64,7 +64,7 @@ function PlayerCard({ player, checkins, games, onAssign }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 15, fontWeight: 700 }}>{player.name}</span>
             <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, fontWeight: 700, background: pos.colorLight, color: pos.color }}>{pos.emoji} {pos.label}</span>
-            <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, fontWeight: 700, background: C.blueLt, color: C.blue }}>{GYM_FOCUSES[player.gym_focus]?.label}</span>
+            <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, fontWeight: 700, background: C.blueLt, color: C.blue }}>{POSITIONS[player.position]?.gymPriority}</span>
             {flagged && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, fontWeight: 700, background: C.redLt, color: C.red }}>⚠ Flagged</span>}
             {player.is_injured && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, fontWeight: 700, background: C.redLt, color: C.red }}>🩹 Injured</span>}
           </div>
