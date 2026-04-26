@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { getTeamSnapshot, updatePlayer } from '../lib/supabase';
 import { POSITIONS, calcNutrition, calcScore } from '../lib/config';
 import LineupView from './LineupView';
+import ScheduleView from './ScheduleView';
 
 const C = {
   bg: '#F8F8F6', card: '#fff', border: '#E0DED7', text: '#18181A', muted: '#6B6A66',
@@ -264,12 +265,13 @@ export default function CoachView({ team, onLogout }) {
 
       {/* Coach Tabs */}
       <div style={{ display:'flex',gap:4,padding:'.625rem 1.25rem',background:'white',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,zIndex:100 }}>
-        {[['squad','👥 Squad'],['lineup','📋 Lineup Builder']].map(([t,l])=>(
+        {[['squad','👥 Squad'],['schedule','📅 Schedule'],['lineup','📋 Lineup Builder']].map(([t,l])=>(
           <button key={t} onClick={()=>setCoachTab(t)} style={{ padding:'6px 14px',borderRadius:20,border:`1px solid ${coachTab===t?C.blue:C.border}`,background:coachTab===t?C.blue:'white',color:coachTab===t?'white':C.muted,fontSize:12,fontWeight:500,cursor:'pointer' }}>{l}</button>
         ))}
       </div>
 
       {coachTab==='lineup' && <LineupView team={team} isCoach={true} currentPlayerId={null}/>}
+      {coachTab==='schedule' && <ScheduleView team={team} isCoach={true}/>}
 
       {coachTab==='squad' && <div style={{ maxWidth: 1100, margin: '0 auto', padding: '1.25rem' }}>
         {/* Filters */}

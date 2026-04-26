@@ -1,9 +1,10 @@
-// src/views/PlayerView.jsx — v3 REFACTOR
+// src/views/PlayerView.jsx — v4
 import { useState, useEffect } from 'react';
-import { getCheckins, saveCheckin, getGames, saveGame, getMeasurements, saveMeasurement, updatePlayer, supabase } from '../lib/supabase';
-import { POSITIONS, BODY_GOALS, calcNutrition, calcScore, buildGymPlan } from '../lib/config';
+import { getCheckins, saveCheckin, getGames, saveGame, getMeasurements, updatePlayer, supabase, getUpcomingEvents, respondToEvent, getPlayerAttendanceForEvents } from '../lib/supabase';
+import { POSITIONS, PERFORMANCE_FOCUS, calcNutrition, calcScore, buildGymPlan } from '../lib/config';
 import TacticsView from './TacticsView';
 import LineupView from './LineupView';
+import ScheduleView from './ScheduleView';
 
 const C = {
   bg:'#F8F8F6',card:'#fff',border:'#E0DED7',text:'#18181A',muted:'#6B6A66',
@@ -96,13 +97,14 @@ function IQQuiz({scenarios,posColor}) {
 }
 
 // ── Performance Radar ─────────────────────────────────────────────────────────
-function PerformanceRadar({speed,endurance,strength,availability,matchImpact}) {
+function PerformanceRadar({speed,endurance,strength,availability,matchImpact,attendance}) {
   const dims=[
-    {label:'Speed',value:speed,color:C.blue},
-    {label:'Endurance',value:endurance,color:C.teal},
-    {label:'Strength',value:strength,color:C.purple},
-    {label:'Availability',value:availability,color:C.amber},
-    {label:'Match Impact',value:matchImpact,color:C.red},
+    {label:'Speed',value:speed,color:C.blue,desc:'Based on 40m sprint time'},
+    {label:'Endurance',value:endurance,color:C.teal,desc:'Based on training consistency'},
+    {label:'Strength',value:strength,color:C.purple,desc:'Based on check-in data'},
+    {label:'Availability',value:availability,color:C.amber,desc:'Injury-free training days'},
+    {label:'Match Impact',value:matchImpact,color:C.red,desc:'Game log ratings + stats'},
+    ...(attendance!==null?[{label:'Attendance',value:attendance,color:'#1D6FA5',desc:'Event confirmations vs total events'}]:[]),
   ];
   return (
     <div>
@@ -115,13 +117,7 @@ function PerformanceRadar({speed,endurance,strength,availability,matchImpact}) {
           <div style={{background:'#e0ddd7',borderRadius:20,height:8,overflow:'hidden',border:`0.5px solid ${C.border}`}}>
             <div style={{width:`${Math.min(100,d.value||0)}%`,height:'100%',background:d.color,borderRadius:20,transition:'width .6s'}}/>
           </div>
-          <div style={{fontSize:10,color:C.muted,marginTop:2}}>
-            {d.label==='Speed'&&'Based on 40m sprint time'}
-            {d.label==='Endurance'&&'Based on training consistency'}
-            {d.label==='Strength'&&'Based on check-in data'}
-            {d.label==='Availability'&&'Based on injury-free training days'}
-            {d.label==='Match Impact'&&'Based on game log ratings + stats'}
-          </div>
+          <div style={{fontSize:10,color:C.muted,marginTop:2}}>{d.desc}</div>
         </div>
       ))}
     </div>
@@ -212,7 +208,10 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
   const [games,setGames]=useState([]);
   const [measurements,setMeasurements]=useState([]);
   const [loading,setLoading]=useState(true);
-  const [matchDays,setMatchDays]=useState(''); // days until next match
+  const [upcomingEvents,setUpcomingEvents]=useState([]);
+  const [myAttendance,setMyAttendance]=useState({});
+  const [attendanceNote,setAttendanceNote]=useState('');
+  const [respondingTo,setRespondingTo]=useState(null);
 
   // Engine state
   const [rSleep,setRSleep]=useState(0);
@@ -221,7 +220,6 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
   const [rEnergy,setREnergy]=useState(0);
   const [rPrev,setRPrev]=useState(0);
   const [rHard,setRHard]=useState(0);
-  const [rMatch,setRMatch]=useState('none'); // none|today|tomorrow|2days|3plus
   const [decision,setDecision]=useState(null);
   const [injuryType,setInjuryType]=useState('ankle');
 
@@ -263,19 +261,54 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
   useEffect(()=>{loadAll();},[]);
 
   async function loadAll() {
-    const [{data:cis},{data:gs},{data:ms}]=await Promise.all([
-      getCheckins(player.id),getGames(player.id),getMeasurements(player.id)
+    const [{data:cis},{data:gs},{data:ms},{data:evts}]=await Promise.all([
+      getCheckins(player.id),getGames(player.id),getMeasurements(player.id),
+      getUpcomingEvents(team.id,10)
     ]);
     setCheckins(cis||[]);
     setGames(gs||[]);
     setMeasurements(ms||[]);
+    const events=evts||[];
+    setUpcomingEvents(events);
+    if (events.length>0) {
+      const {data:att}=await getPlayerAttendanceForEvents(player.id,events.map(e=>e.id));
+      const attMap={};
+      (att||[]).forEach(a=>{attMap[a.event_id]=a;});
+      setMyAttendance(attMap);
+    }
     setLoading(false);
   }
 
+  async function handleAttendance(eventId, status) {
+    await respondToEvent(eventId, player.id, status, attendanceNote);
+    setMyAttendance(prev=>({...prev,[eventId]:{status,response_note:attendanceNote}}));
+    setRespondingTo(null); setAttendanceNote('');
+  }
+
+  // Auto-calculate match proximity from schedule
+  const today = new Date().toISOString().split('T')[0];
+  const nextGame = upcomingEvents.find(e=>e.type==='Game');
+  const nextPractice = upcomingEvents.find(e=>e.type==='Practice');
+  const nextEvent = upcomingEvents[0];
+
+  function getDaysUntil(dateStr) {
+    if (!dateStr) return null;
+    const diff = Math.round((new Date(dateStr+'T12:00:00') - new Date()) / (1000*60*60*24));
+    return diff;
+  }
+  const daysUntilGame = getDaysUntil(nextGame?.date);
+  const daysUntilPractice = getDaysUntil(nextPractice?.date);
+
+  // Derive rMatch automatically from schedule
+  const autoMatch = daysUntilGame===0?'today':daysUntilGame===1?'tomorrow':daysUntilGame===2?'2days':daysUntilGame<=3?'3days':'none';
+
   function calcDecision() {
     let type,title,items=[];
-    const matchSoon=rMatch==='today'||rMatch==='tomorrow';
-    const matchIn2=rMatch==='2days';
+    const effectiveMatch = autoMatch;
+    const matchSoon = effectiveMatch==='today'||effectiveMatch==='tomorrow';
+    const matchIn2 = effectiveMatch==='2days';
+    const practiceToday = daysUntilPractice===0;
+    const practiceHighIntensity = nextPractice?.intensity_level==='High'||nextPractice?.intensity_level==='Match';
 
     if (rInj) {
       type='red'; title='🛑 Injury Protocol Active';
@@ -283,18 +316,33 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
     } else if (rHard>=4||rSleep<=5||rSore>=9) {
       type='red'; title='🔴 Recovery Day — Full Rest';
       items=['No structured training today','15-min easy walk maximum','Full nutrition + extra hydration','9+ hours sleep tonight','Foam roll and light stretch only'];
-    } else if (matchSoon) {
-      type='amber'; title=`🟡 Match ${rMatch==='today'?'Today':'Tomorrow'} — Activation Only`;
-      items=[rMatch==='today'?'Pre-match activation only — 15 min max':'Light technical work + set piece prep','No heavy lifting or high-intensity running','Focus on sleep and nutrition today',pos.label+' specific: '+pos.sprintFocus.split('+')[0].trim()];
+    } else if (effectiveMatch==='today') {
+      type='amber'; title='🟡 Match Day — Activation Only';
+      items=[`${nextGame?.title||'Match'} today${nextGame?.start_time?' at '+nextGame.start_time:''}${nextGame?.location?' · '+nextGame.location:''}`,
+        'Pre-match activation only — 15 min max','No heavy lifting or high-intensity running',
+        'Focus on sleep and match nutrition today',
+        pos.label+' pre-match: '+pos.sprintFocus.split('+')[0].trim()];
+    } else if (effectiveMatch==='tomorrow') {
+      type='amber'; title='🟡 Match Tomorrow — Light Technical Work';
+      items=[`${nextGame?.title||'Match'} tomorrow${nextGame?.start_time?' at '+nextGame.start_time:''}`,
+        'Light technical work + mobility only','No max-effort sprints or heavy strength work',
+        'Team training only if coach scheduled it','Prioritize sleep and hydration tonight'];
     } else if (matchIn2) {
       type='amber'; title='🟡 Match in 2 Days — Moderate Session';
-      items=['Moderate intensity — 70% max effort','Short sharp speed work only (under 30m)','Strength work at reduced weight — skip heavy compounds','Prioritize sleep tonight'];
+      items=['Moderate intensity — 70% max effort','Short sharp speed work only (under 30m)','Strength at reduced weight — skip heavy compounds','Prioritize sleep tonight'];
+    } else if (practiceToday&&practiceHighIntensity) {
+      type='amber'; title=`🟡 Team Practice Today — ${nextPractice?.intensity_level} Intensity`;
+      items=[`${nextPractice?.title||'Practice'} today${nextPractice?.start_time?' at '+nextPractice.start_time:''}${nextPractice?.location?' · '+nextPractice.location:''}`,
+        'Complete warm-up and mobility only before practice','Save your energy for the team session',
+        nextPractice?.coach_focus?`Coach focus: ${nextPractice.coach_focus}`:'Give full effort in the team session'];
     } else if (rHard>=3||rSleep===6||rSore>=6||rEnergy===2) {
       type='amber'; title='🟡 Reduce Intensity 30%';
-      items=['Gym at 70% — 2 sets per exercise','Skip high-intensity sprint work — tempo only','Reduce accessory work, keep core compounds','Prioritize 8+ hours sleep tonight'];
+      items=['Session at 70% — 2 sets per exercise','Skip high-intensity sprint work — tempo only','Reduce accessory work, keep core compounds','Prioritize 8+ hours sleep tonight'];
     } else {
       type='green'; title='🟢 Full Training Session';
-      items=['Execute today\'s full session','Push for progression on your main lifts',pos.label+': '+pos.sprintFocus,'Prioritize sleep and post-session nutrition'];
+      items=['Execute today\'s full session at full effort','Push for progression on main compound lifts',
+        pos.label+': '+pos.sprintFocus,
+        practiceToday?`Team practice today${nextPractice?.start_time?' at '+nextPractice.start_time:''} — adjust volume accordingly`:'Prioritize post-session nutrition and recovery'];
     }
     setDecision({type,title,items});
   }
@@ -337,7 +385,7 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
     name:player.name||'',
     position:player.position||'',
     secondary_position:player.secondary_position||'',
-    body_goal:player.body_goal||'maintain',
+    performance_focus:player.performance_focus||player.body_goal||'maintain',
     bio:player.bio||'',
     jersey_number:player.jersey_number||'',
     preferred_foot:player.preferred_foot||'',
@@ -352,7 +400,8 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
       name:profileForm.name,
       position:profileForm.position,
       secondary_position:profileForm.secondary_position||null,
-      body_goal:profileForm.body_goal,
+      performance_focus:profileForm.performance_focus,
+      body_goal:profileForm.performance_focus, // keep for legacy compat
       bio:profileForm.bio,
       jersey_number:profileForm.jersey_number?parseInt(profileForm.jersey_number):null,
       preferred_foot:profileForm.preferred_foot||null,
@@ -378,8 +427,8 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
     setAvatarUploading(false);
   }
 
-  const TABS=['profile','engine','training','speed','strength','iq','tactics','lineup','nutrition','game','checkin','progress'];
-  const TAB_LABELS={profile:'👤 Profile',engine:'🧠 Engine',training:'Training',speed:'Speed System',strength:'Performance Strength',iq:'Position IQ',tactics:'Team Tactics',lineup:'Lineup',nutrition:'Nutrition',game:'Game Log',checkin:'Check-In',progress:'Progress'};
+  const TABS=['profile','engine','training','speed','strength','iq','tactics','schedule','lineup','nutrition','game','checkin','progress'];
+  const TAB_LABELS={profile:'👤 Profile',engine:'🧠 Engine',training:'Training',speed:'Speed System',strength:'Performance Strength',iq:'Position IQ',tactics:'Team Tactics',schedule:'📅 Schedule',lineup:'Lineup',nutrition:'Nutrition',game:'Game Log',checkin:'Check-In',progress:'Progress'};
 
   // Availability status
   const available=!player.is_injured;
@@ -411,17 +460,75 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
           {[
             [latestCI?.sprint_40m||'—','40m Sprint','s'],
             [latestCI?.days_trained??latestCI?.days_completed??'—','Days Trained','/wk'],
-            [games.length,'Games Logged',''],
-            [latestCI?.minutes_played??'—','Min Played',''],
+            [nextEvent?new Date(nextEvent.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}):'No events','Next Event',''],
+            [nextEvent?(myAttendance[nextEvent?.id]?.status||'Not Responded'):'—','Attendance',''],
           ].map(([val,lbl,unit])=>(
             <div key={lbl} style={{textAlign:'center',background:'rgba(255,255,255,.1)',borderRadius:8,padding:'7px 4px'}}>
-              <div style={{fontSize:16,fontWeight:800,color:'white'}}>{val}{unit&&val!=='—'?unit:''}</div>
+              <div style={{fontSize:val&&val.length>6?11:16,fontWeight:800,color:'white'}}>{val}{unit&&val!=='—'?unit:''}</div>
               <div style={{fontSize:9,opacity:.6}}>{lbl}</div>
             </div>
           ))}
         </div>
 
-        {player.coach_note&&<div style={{marginTop:10,padding:'6px 10px',background:'rgba(255,255,255,.1)',borderRadius:8,fontSize:12,opacity:.9}}>📋 Coach: {player.coach_note}</div>}
+        {/* Next event banner + attendance buttons */}
+        {nextEvent&&(()=>{
+          const typeColors={'Practice':C.blue,'Game':C.red,'Team Meeting':C.amber,'Recovery Session':C.teal};
+          const tc=typeColors[nextEvent.type]||C.blue;
+          const myAtt=myAttendance[nextEvent.id];
+          const daysUntil=getDaysUntil(nextEvent.date);
+          const urgency=daysUntil===0?'TODAY':daysUntil===1?'TOMORROW':daysUntil<=3?`IN ${daysUntil} DAYS`:'';
+          return (
+            <div style={{marginTop:10,background:'rgba(255,255,255,.12)',borderRadius:10,padding:'10px 12px',border:`1px solid rgba(255,255,255,.2)`}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:6}}>
+                <div>
+                  <div style={{display:'flex',gap:6,alignItems:'center',marginBottom:3}}>
+                    <span style={{fontSize:10,padding:'1px 7px',borderRadius:20,fontWeight:700,background:tc,color:'white'}}>{nextEvent.type}</span>
+                    {urgency&&<span style={{fontSize:10,fontWeight:800,color:'#FFD700'}}>{urgency}</span>}
+                  </div>
+                  <div style={{fontSize:13,fontWeight:700,color:'white'}}>{nextEvent.title}{nextEvent.opponent?` vs ${nextEvent.opponent}`:''}</div>
+                  <div style={{fontSize:11,opacity:.75,marginTop:2}}>
+                    {nextEvent.start_time&&nextEvent.start_time+' · '}{nextEvent.location||''}
+                    {nextEvent.field_number&&` · ${nextEvent.field_number}`}
+                  </div>
+                  {nextEvent.coach_focus&&<div style={{fontSize:11,opacity:.85,marginTop:2}}>📌 {nextEvent.coach_focus}</div>}
+                </div>
+                <div style={{textAlign:'right'}}>
+                  {myAtt?<span style={{fontSize:11,padding:'3px 9px',borderRadius:20,fontWeight:700,background:'rgba(255,255,255,.2)',color:'white'}}>{myAtt.status}</span>:
+                  <span style={{fontSize:11,color:'rgba(255,255,255,.6)'}}>Not responded</span>}
+                </div>
+              </div>
+              {!myAtt&&(
+                <div style={{marginTop:8,display:'flex',gap:6,flexWrap:'wrap'}}>
+                  {[['✓ Confirm','Confirmed','#1D9E75'],['? Maybe','Maybe','#BA7517'],['✗ Can\'t Make It','Unavailable','#E24B4A']].map(([lbl,status,color])=>(
+                    <button key={status} onClick={()=>setRespondingTo(nextEvent.id)} style={{padding:'5px 12px',borderRadius:20,border:`1px solid ${color}`,background:color,color:'white',fontSize:11,fontWeight:700,cursor:'pointer'}}>{lbl}</button>
+                  ))}
+                </div>
+              )}
+              {myAtt&&(
+                <button onClick={()=>setRespondingTo(nextEvent.id)} style={{marginTop:6,padding:'4px 10px',borderRadius:20,border:'1px solid rgba(255,255,255,.3)',background:'transparent',color:'white',fontSize:11,cursor:'pointer'}}>Change response</button>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Attendance response modal */}
+        {respondingTo&&(()=>{
+          const evt=upcomingEvents.find(e=>e.id===respondingTo);
+          return (
+            <div style={{marginTop:8,background:'rgba(255,255,255,.15)',borderRadius:10,padding:'10px 12px'}}>
+              <div style={{fontSize:12,fontWeight:700,color:'white',marginBottom:6}}>Responding to: {evt?.title}</div>
+              <input value={attendanceNote} onChange={e=>setAttendanceNote(e.target.value)} placeholder="Optional note (e.g. May be 10 min late)" style={{width:'100%',padding:'6px 9px',borderRadius:7,border:'1px solid rgba(255,255,255,.3)',background:'rgba(255,255,255,.1)',color:'white',fontSize:12,fontFamily:'inherit',marginBottom:6}}/>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                {[['✓ Confirmed','Confirmed','#1D9E75'],['? Maybe','Maybe','#BA7517'],['✗ Unavailable','Unavailable','#E24B4A']].map(([lbl,status,color])=>(
+                  <button key={status} onClick={()=>handleAttendance(respondingTo,status)} style={{padding:'5px 14px',borderRadius:20,border:`1px solid ${color}`,background:color,color:'white',fontSize:12,fontWeight:700,cursor:'pointer'}}>{lbl}</button>
+                ))}
+                <button onClick={()=>setRespondingTo(null)} style={{padding:'5px 10px',borderRadius:20,border:'1px solid rgba(255,255,255,.3)',background:'transparent',color:'white',fontSize:11,cursor:'pointer'}}>Cancel</button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {player.coach_note&&<div style={{marginTop:8,padding:'6px 10px',background:'rgba(255,255,255,.1)',borderRadius:8,fontSize:12,opacity:.9}}>📋 Coach: {player.coach_note}</div>}
       </div>
 
       {/* ── Nav ── */}
@@ -491,10 +598,10 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
                 ))}
               </div>
 
-              <label style={{fontSize:11,color:C.muted,display:'block',marginBottom:6}}>Body goal</label>
-              <div style={{display:'flex',gap:6,marginBottom:10}}>
-                {Object.entries(BODY_GOALS).map(([k,g])=>(
-                  <button key={k} onClick={()=>setProfileForm(f=>({...f,body_goal:k}))} style={{flex:1,padding:'7px',borderRadius:8,border:`2px solid ${profileForm.body_goal===k?C.blue:C.border}`,background:profileForm.body_goal===k?C.blueLt:'white',fontSize:12,fontWeight:600,cursor:'pointer',color:profileForm.body_goal===k?C.blueDk:C.muted}}>{g.label}</button>
+              <label style={{fontSize:11,color:C.muted,display:'block',marginBottom:6}}>Performance focus</label>
+              <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:10}}>
+                {Object.entries(PERFORMANCE_FOCUS).map(([k,f])=>(
+                  <button key={k} onClick={()=>setProfileForm(p=>({...p,performance_focus:k}))} style={{padding:'6px 12px',borderRadius:20,border:`2px solid ${profileForm.performance_focus===k?C.blue:C.border}`,background:profileForm.performance_focus===k?C.blueLt:'white',fontSize:12,fontWeight:profileForm.performance_focus===k?700:400,cursor:'pointer',color:profileForm.performance_focus===k?C.blueDk:C.muted}}>{f.label}</button>
                 ))}
               </div>
 
@@ -520,7 +627,6 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
                 ['Energy level?',[['High',3,'teal'],['Moderate',2,'amber'],['Low',1,'red']],rEnergy,setREnergy],
                 ['Yesterday was?',[['Rest / Easy',0,'teal'],['Moderate',1,'amber'],['Intense',2,'red']],rPrev,setRPrev],
                 ['Hard sessions this week?',[['0',0,'teal'],['1-2',2,'teal'],['3',3,'amber'],['4+',4,'red']],rHard,setRHard],
-                ['Next match?',[['3+ days',3,'teal'],['In 2 days',2,'amber'],['Tomorrow','tomorrow','amber'],['Today','today','red']],rMatch,setRMatch],
               ].map(([label,opts,val,setter])=>(
                 <Card key={label} style={{marginBottom:8}}>
                   <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>{label}</div>
@@ -577,6 +683,27 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
                   Match day: activation only, no heavy work
                 </div>
               </Card>
+              {upcomingEvents.length>0&&<>
+                <Sh>Upcoming Team Events</Sh>
+                {upcomingEvents.slice(0,3).map(evt=>{
+                  const dUntil=getDaysUntil(evt.date);
+                  const myAtt=myAttendance[evt.id];
+                  const typeColors={'Practice':C.blue,'Game':C.red,'Team Meeting':C.amber,'Recovery Session':C.teal};
+                  const tc=typeColors[evt.type]||C.blue;
+                  return (
+                    <Card key={evt.id} style={{marginBottom:6,borderColor:`${tc}40`}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                        <div>
+                          <div style={{fontSize:10,fontWeight:700,color:tc,marginBottom:2}}>{evt.type.toUpperCase()} · {dUntil===0?'TODAY':dUntil===1?'TOMORROW':`IN ${dUntil} DAYS`}</div>
+                          <div style={{fontSize:12,fontWeight:700}}>{evt.title}{evt.opponent?` vs ${evt.opponent}`:''}</div>
+                          <div style={{fontSize:11,color:C.muted}}>{evt.start_time&&evt.start_time+' · '}{evt.location}</div>
+                        </div>
+                        <span style={{fontSize:10,padding:'2px 7px',borderRadius:20,fontWeight:700,background:myAtt?.status==='Confirmed'?C.tealLt:myAtt?.status==='Unavailable'?C.redLt:C.bg,color:myAtt?.status==='Confirmed'?C.teal:myAtt?.status==='Unavailable'?C.red:C.muted}}>{myAtt?.status||'Not Responded'}</span>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </>}
               <Sh>Your Position Profile</Sh>
               <Card>
                 <div style={{display:'flex',gap:12,alignItems:'center',marginBottom:10}}>
@@ -809,11 +936,27 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
         {/* ══ TACTICS ══ */}
         {tab==='tactics'&&<TacticsView/>}
 
+        {/* ══ SCHEDULE ══ */}
+        {tab==='schedule'&&<ScheduleView team={team} isCoach={false}/>}
+
         {/* ══ LINEUP ══ */}
         {tab==='lineup'&&<LineupView team={team} isCoach={false} currentPlayerId={player.id}/>}
 
         {/* ══ NUTRITION ══ */}
         {tab==='nutrition'&&<>
+          {nextEvent&&(()=>{
+            const dUntil=getDaysUntil(nextEvent.date);
+            let dayType='Training Day', advice='';
+            if (nextEvent.type==='Game'&&dUntil===0){dayType='Match Day';advice='High carbs from last night. Light meal 3-4hrs before kickoff. Hydrate all day. Recovery shake within 30 min post-match.';}
+            else if (nextEvent.type==='Game'&&dUntil===1){dayType='Pre-Match Day';advice='High carbs today to load for tomorrow. Lighter dinner. 9hrs sleep. No heavy gym work.';}
+            else if (nextEvent.type==='Recovery Session'&&dUntil===0){dayType='Recovery Day';advice='Lower carbs, higher protein. Anti-inflammatory foods. Extra hydration. No training nutrition needed.';}
+            else if (nextEvent.type==='Practice'&&(nextEvent.intensity_level==='High'||nextEvent.intensity_level==='Match')&&dUntil===0){dayType='High-Intensity Training Day';advice='Extra carbs pre-session. Intra-session carbs if over 60 min. Recovery nutrition within 30 min.';}
+            else {dayType='Training Day';}
+            return <div style={{background:C.blueLt,borderLeft:`3px solid ${C.blue}`,borderRadius:'0 8px 8px 0',padding:'8px 12px',marginBottom:12,fontSize:12}}>
+              <span style={{fontWeight:700,color:C.blueDk}}>{dayType}</span>
+              {advice&&<span style={{color:C.blueDk}}> — {advice}</span>}
+            </div>;
+          })()}
           <Sh>Nutrition by Day Type</Sh>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:'1rem'}}>
             {[
@@ -963,7 +1106,7 @@ export default function PlayerView({player:initPlayer,team,onLogout}) {
           <Sh>Performance Index — Your Development Profile</Sh>
           <Hbox color="blue">This is your personal development profile — not a competition. Track your own growth over time.</Hbox>
           <Card style={{marginTop:8}}>
-            <PerformanceRadar {...perfIndex}/>
+            <PerformanceRadar {...perfIndex} attendance={upcomingEvents.length>0?Math.round((Object.values(myAttendance).filter(a=>a.status==='Confirmed').length/Math.max(upcomingEvents.length,1))*100):null}/>
           </Card>
 
           <Sh>Position KPIs — {pos.label}</Sh>

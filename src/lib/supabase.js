@@ -145,3 +145,69 @@ export async function getTeamSnapshot(teamId) {
 
   return { players, checkinsByPlayer, gamesByPlayer };
 }
+
+// ── Events ─────────────────────────────────────────────────────────────────
+export async function getEvents(teamId) {
+  const { data, error } = await supabase
+    .from('events').select('*').eq('team_id', teamId)
+    .order('date', { ascending: true });
+  return { data, error };
+}
+
+export async function getUpcomingEvents(teamId, limit = 5) {
+  const today = new Date().toISOString().split('T')[0];
+  const { data, error } = await supabase
+    .from('events').select('*').eq('team_id', teamId)
+    .gte('date', today).eq('status', 'Scheduled')
+    .order('date', { ascending: true }).limit(limit);
+  return { data, error };
+}
+
+export async function createEvent(teamId, event) {
+  const { data, error } = await supabase
+    .from('events').insert({ team_id: teamId, ...event }).select().single();
+  return { data, error };
+}
+
+export async function updateEvent(id, updates) {
+  const { data, error } = await supabase
+    .from('events').update(updates).eq('id', id).select().single();
+  return { data, error };
+}
+
+export async function deleteEvent(id) {
+  const { error } = await supabase.from('events').delete().eq('id', id);
+  return { error };
+}
+
+// ── Attendance ─────────────────────────────────────────────────────────────
+export async function getAttendanceForEvent(eventId) {
+  const { data, error } = await supabase
+    .from('attendance').select('*, players(id, name, position, secondary_position, is_injured)')
+    .eq('event_id', eventId);
+  return { data, error };
+}
+
+export async function getAttendanceForPlayer(playerId) {
+  const { data, error } = await supabase
+    .from('attendance').select('*').eq('player_id', playerId);
+  return { data, error };
+}
+
+export async function respondToEvent(eventId, playerId, status, note = '') {
+  const { data, error } = await supabase
+    .from('attendance').upsert({
+      event_id: eventId, player_id: playerId,
+      status, response_note: note, responded_at: new Date().toISOString()
+    }, { onConflict: 'event_id,player_id' }).select().single();
+  return { data, error };
+}
+
+export async function getPlayerAttendanceForEvents(playerId, eventIds) {
+  if (!eventIds.length) return { data: [] };
+  const { data, error } = await supabase
+    .from('attendance').select('*')
+    .eq('player_id', playerId).in('event_id', eventIds);
+  return { data, error };
+}
+

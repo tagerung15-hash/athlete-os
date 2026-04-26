@@ -1,7 +1,7 @@
 // src/views/AuthView.jsx
 import { useState } from 'react';
 import { getTeamByCode, getTeamByCoachCode, getPlayerByNamePin, createPlayer, createTeam } from '../lib/supabase';
-import { POSITIONS, BODY_GOALS } from '../lib/config';
+import { POSITIONS, PERFORMANCE_FOCUS } from '../lib/config';
 
 export default function AuthView({ onPlayerLogin, onCoachLogin }) {
   const [mode, setMode] = useState('home');
@@ -15,7 +15,7 @@ export default function AuthView({ onPlayerLogin, onCoachLogin }) {
   const [newTeamName, setNewTeamName] = useState('');
   const [primaryPos, setPrimaryPos] = useState('');
   const [secondaryPos, setSecondaryPos] = useState('');
-  const [bodyGoal, setBodyGoal] = useState('');
+  const [perfFocus, setPerfFocus] = useState('');
 
   const s = {
     wrap:{minHeight:'100vh',background:'#F8F8F6',display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'},
@@ -77,15 +77,16 @@ export default function AuthView({ onPlayerLogin, onCoachLogin }) {
   }
 
   async function createProfile() {
-    if (!primaryPos||!bodyGoal){setError('Select your position and body goal to continue.');return;}
+    if (!primaryPos||!perfFocus){setError('Select your position and performance focus to continue.');return;}
     if (pin.length!==4){setError('PIN must be exactly 4 digits.');return;}
     if (!name.trim()){setError('Enter your name.');return;}
     setLoading(true); setError('');
     const {data,error} = await createPlayer(team.id,{
       name:name.trim(), pin, position:primaryPos,
       secondary_position: secondaryPos||null,
-      gym_focus:'position_based', // legacy field — now auto-determined
-      body_goal:bodyGoal
+      gym_focus:'position_based',
+      performance_focus: perfFocus,
+      body_goal: perfFocus, // legacy compat
     });
     if (error){setError('Could not create profile. Name may already exist on this team.');setLoading(false);return;}
     onPlayerLogin(data,team); setLoading(false);
@@ -187,14 +188,14 @@ export default function AuthView({ onPlayerLogin, onCoachLogin }) {
         ))}
       </div>
 
-      <label style={{...s.lbl,marginBottom:'8px'}}>Body goal <span style={{color:'#E24B4A'}}>*</span></label>
-      <div style={{display:'flex',gap:'6px',marginBottom:'16px'}}>
-        {Object.entries(BODY_GOALS).map(([k,g])=>(
-          <button key={k} onClick={()=>setBodyGoal(k)} style={{flex:1,padding:'8px',borderRadius:'10px',border:`2px solid ${bodyGoal===k?'#185FA5':'#E0DED7'}`,background:bodyGoal===k?'#E6F1FB':'white',fontSize:'12px',fontWeight:'600',cursor:'pointer',color:bodyGoal===k?'#0C447C':'#6B6A66'}}>{g.label}</button>
+      <label style={{...s.lbl,marginBottom:'8px'}}>Performance focus <span style={{color:'#E24B4A'}}>*</span></label>
+      <div style={{display:'flex',flexWrap:'wrap',gap:'6px',marginBottom:'16px'}}>
+        {Object.entries(PERFORMANCE_FOCUS).map(([k,f])=>(
+          <button key={k} onClick={()=>setPerfFocus(k)} style={{padding:'7px 14px',borderRadius:'20px',border:`2px solid ${perfFocus===k?'#185FA5':'#E0DED7'}`,background:perfFocus===k?'#E6F1FB':'white',fontSize:'12px',fontWeight:'600',cursor:'pointer',color:perfFocus===k?'#0C447C':'#6B6A66'}}>{f.label}</button>
         ))}
       </div>
 
-      <button style={s.btn} onClick={createProfile} disabled={loading||!name||pin.length!==4||!primaryPos||!bodyGoal}>
+      <button style={s.btn} onClick={createProfile} disabled={loading||!name||pin.length!==4||!primaryPos||!perfFocus}>
         {loading?'Creating...':'Create Profile & Enter'}
       </button>
       <button style={s.btnGhost} onClick={()=>setMode('player_login')}>Back</button>
