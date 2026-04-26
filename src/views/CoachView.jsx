@@ -159,6 +159,8 @@ export default function CoachView({ team, onLogout }) {
   const [sortBy, setSortBy] = useState('score');
   const [search, setSearch] = useState('');
   const [coachTab, setCoachTab] = useState('squad');
+
+  useEffect(() => {
     loadData();
     const interval = setInterval(loadData, 30000); // refresh every 30s
     return () => clearInterval(interval);
