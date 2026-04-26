@@ -34,6 +34,7 @@ function PlayerCard({ player, checkins, games, onAssign }) {
   const [assignNote, setAssignNote] = useState(player.coach_note || '');
   const [assignFocus, setAssignFocus] = useState(player.coach_focus || '');
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const pos = POSITIONS[player.position] || POSITIONS.striker;
   const latestCI = checkins?.[0];
@@ -50,9 +51,10 @@ function PlayerCard({ player, checkins, games, onAssign }) {
   const flagged = (latestCI?.days_completed || 0) < 3 || (latestCI?.sleep_avg || 8) < 6;
 
   async function saveAssignment() {
-    setSaving(true);
+    setSaving(true); setSaved(false);
     await updatePlayer(player.id, { coach_note: assignNote, coach_focus: assignFocus });
-    setSaving(false);
+    setSaving(false); setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
   }
 
   return (
@@ -142,9 +144,12 @@ function PlayerCard({ player, checkins, games, onAssign }) {
             <input value={assignFocus} onChange={e => setAssignFocus(e.target.value)} placeholder="e.g. Sprint PR week — push 40m time" style={{ width: '100%', padding: '6px 8px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, marginBottom: 8, fontFamily: 'inherit' }} />
             <label style={{ fontSize: 11, color: C.blueDk, display: 'block', marginBottom: 3 }}>Coach note (visible to player)</label>
             <input value={assignNote} onChange={e => setAssignNote(e.target.value)} placeholder="e.g. Work on press angles this week" style={{ width: '100%', padding: '6px 8px', borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, marginBottom: 8, fontFamily: 'inherit' }} />
-            <button onClick={saveAssignment} disabled={saving} style={{ padding: '6px 16px', borderRadius: 8, border: 'none', background: C.blue, color: 'white', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-              {saving ? 'Saving...' : 'Save Assignment'}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button onClick={saveAssignment} disabled={saving} style={{ padding: '6px 16px', borderRadius: 8, border: 'none', background: saved ? C.teal : C.blue, color: 'white', fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'background .3s' }}>
+                {saving ? 'Saving...' : saved ? '✓ Saved!' : 'Save Assignment'}
+              </button>
+              {saved && <span style={{ fontSize: 11, color: C.teal, fontWeight: 700 }}>Player will see this next time they open the app.</span>}
+            </div>
           </div>
         </div>
       )}
