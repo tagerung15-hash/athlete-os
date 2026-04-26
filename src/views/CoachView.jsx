@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { getTeamSnapshot, updatePlayer } from '../lib/supabase';
 import { POSITIONS, GYM_FOCUSES, calcNutrition, calcScore } from '../lib/config';
+import LineupView from './LineupView';
 
 const C = {
   bg: '#F8F8F6', card: '#fff', border: '#E0DED7', text: '#18181A', muted: '#6B6A66',
@@ -157,8 +158,7 @@ export default function CoachView({ team, onLogout }) {
   const [filter, setFilter] = useState('all');
   const [sortBy, setSortBy] = useState('score');
   const [search, setSearch] = useState('');
-
-  useEffect(() => {
+  const [coachTab, setCoachTab] = useState('squad');
     loadData();
     const interval = setInterval(loadData, 30000); // refresh every 30s
     return () => clearInterval(interval);
@@ -236,7 +236,16 @@ export default function CoachView({ team, onLogout }) {
         </div>
       </div>
 
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '1.25rem' }}>
+      {/* Coach Tabs */}
+      <div style={{ display:'flex',gap:4,padding:'.625rem 1.25rem',background:'white',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,zIndex:100 }}>
+        {[['squad','👥 Squad'],['lineup','📋 Lineup Builder']].map(([t,l])=>(
+          <button key={t} onClick={()=>setCoachTab(t)} style={{ padding:'6px 14px',borderRadius:20,border:`1px solid ${coachTab===t?C.blue:C.border}`,background:coachTab===t?C.blue:'white',color:coachTab===t?'white':C.muted,fontSize:12,fontWeight:500,cursor:'pointer' }}>{l}</button>
+        ))}
+      </div>
+
+      {coachTab==='lineup' && <LineupView team={team} isCoach={true} currentPlayerId={null}/>}
+
+      {coachTab==='squad' && <div style={{ maxWidth: 1100, margin: '0 auto', padding: '1.25rem' }}>
         {/* Filters */}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search player..." style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, minWidth: 140, fontFamily: 'inherit' }} />
@@ -264,7 +273,7 @@ export default function CoachView({ team, onLogout }) {
         {visible.map(p => (
           <PlayerCard key={p.id} player={p} checkins={p._cis} games={p._games} onAssign={() => {}} />
         ))}
-      </div>
+      </div>}
     </div>
   );
 }

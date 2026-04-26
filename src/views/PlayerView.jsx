@@ -1,7 +1,9 @@
 // src/views/PlayerView.jsx
 import { useState, useEffect } from 'react';
 import { getCheckins, saveCheckin, getGames, saveGame, getLiftLogs, saveLiftLog, getMeasurements, saveMeasurement, updatePlayer } from '../lib/supabase';
-import { POSITIONS, GYM_FOCUSES, BODY_GOALS, calcNutrition, calcScore } from '../lib/config';
+import { POSITIONS, BODY_GOALS, calcNutrition, calcScore, buildGymPlan } from '../lib/config';
+import TacticsView from './TacticsView';
+import LineupView from './LineupView';
 
 const C = {
   bg:'#F8F8F6',card:'#fff',border:'#E0DED7',text:'#18181A',muted:'#6B6A66',
@@ -38,6 +40,77 @@ function TblWrap({ children }) {
 function Th({ children }) { return <th style={{ background:C.bg,padding:'7px 9px',textAlign:'left',fontWeight:700,color:C.muted,borderBottom:`2px solid ${C.border}`,whiteSpace:'nowrap' }}>{children}</th>; }
 function Td({ children, hl }) { return <td style={{ padding:'6px 9px',borderBottom:`1px solid ${C.border}`,fontWeight:hl?700:'normal' }}>{children}</td>; }
 
+function IQQuiz({ scenarios, posLabel, posColor }) {
+  const [idx, setIdx] = useState(0);
+  const [correct, setCorrect] = useState(0);
+  const [answered, setAnswered] = useState(null);
+  const [done, setDone] = useState(false);
+
+  if (!scenarios || scenarios.length === 0) return null;
+
+  function answer(sel) {
+    if (answered !== null) return;
+    setAnswered(sel);
+    if (sel === scenarios[idx % scenarios.length].best) setCorrect(c => c + 1);
+  }
+
+  function next() {
+    const nextIdx = idx + 1;
+    if (nextIdx >= scenarios.length) { setDone(true); return; }
+    setIdx(nextIdx);
+    setAnswered(null);
+  }
+
+  function reset() { setIdx(0); setCorrect(0); setAnswered(null); setDone(false); }
+
+  if (done) {
+    const pct = Math.round(correct / scenarios.length * 100);
+    return (
+      <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:'1.5rem',textAlign:'center' }}>
+        <div style={{ fontSize:40,fontWeight:800,color:pct>=80?C.teal:pct>=60?C.amber:C.red }}>{pct}%</div>
+        <div style={{ fontSize:14,fontWeight:700,margin:'8px 0' }}>{correct}/{scenarios.length} correct — {pct>=80?'Elite IQ':'Keep studying'}</div>
+        <button onClick={reset} style={{ padding:'8px 20px',borderRadius:8,border:'none',background:posColor,color:'white',fontSize:13,fontWeight:700,cursor:'pointer' }}>Retake</button>
+      </div>
+    );
+  }
+
+  const q = scenarios[idx];
+  return (
+    <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:'1.125rem' }}>
+      <div style={{ fontSize:10,fontWeight:700,color:C.muted,marginBottom:6 }}>SCENARIO {idx+1}/{scenarios.length} · {correct} correct</div>
+      <p style={{ fontSize:13,fontWeight:700,marginBottom:10,lineHeight:1.5 }}>{q.q}</p>
+      {q.opts.map((opt,i) => {
+        const isCorrect = i === q.best;
+        const isSelected = answered === i;
+        let bg = 'white', border = C.border, color = C.text;
+        if (answered !== null) {
+          if (isCorrect) { bg = C.tealLt; border = C.teal; color = C.tealDk; }
+          else if (isSelected) { bg = C.redLt; border = C.red; color = '#501313'; }
+        }
+        return (
+          <button key={i} onClick={() => answer(i)} disabled={answered !== null} style={{
+            display:'block',width:'100%',textAlign:'left',padding:'9px 13px',marginBottom:5,
+            borderRadius:8,border:`1px solid ${border}`,background:bg,fontSize:12,cursor:answered===null?'pointer':'default',
+            color, fontWeight:isCorrect&&answered!==null?700:'normal',
+          }}>{String.fromCharCode(65+i)}. {opt}</button>
+        );
+      })}
+      {answered !== null && (
+        <div style={{ background:answered===q.best?C.tealLt:C.redLt,border:`1px solid ${answered===q.best?C.teal:C.red}`,borderRadius:8,padding:'8px 12px',fontSize:12,marginTop:5,color:answered===q.best?C.tealDk:'#A32D2D',lineHeight:1.6 }}>
+          {answered===q.best?'✓ Correct — ':'✗ Incorrect. '}{q.fb}
+        </div>
+      )}
+      {answered !== null && (
+        <div style={{ textAlign:'right',marginTop:8 }}>
+          <button onClick={next} style={{ padding:'7px 18px',borderRadius:8,border:'none',background:C.blue,color:'white',fontSize:12,fontWeight:700,cursor:'pointer' }}>
+            {idx+1 >= scenarios.length ? 'See Results' : 'Next →'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PlayerView({ player: initPlayer, team, onLogout }) {
   const [player, setPlayer] = useState(initPlayer);
   const [tab, setTab] = useState('engine');
@@ -70,10 +143,12 @@ export default function PlayerView({ player: initPlayer, team, onLogout }) {
   const [lSaving, setLSaving] = useState(false);
 
   const pos = POSITIONS[player.position] || POSITIONS.striker;
-  const gym = GYM_FOCUSES[player.gym_focus] || GYM_FOCUSES.hypertrophy;
+  const pos = POSITIONS[player.position] || POSITIONS.striker;
+  const secondaryPos = player.secondary_position ? POSITIONS[player.secondary_position] : null;
   const nutrition = calcNutrition(player);
   const latestCI = checkins[0];
   const scoreData = calcScore(player, latestCI, games);
+  const gymPlan = buildGymPlan(player.position, player.secondary_position);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -152,8 +227,8 @@ export default function PlayerView({ player: initPlayer, team, onLogout }) {
     setLSaving(false);
   }
 
-  const TABS = ['engine','training','sprint','gym','nutrition','game','checkin','progress'];
-  const TAB_LABELS = { engine:'🧠 Engine', training:'Training', sprint:'Sprint', gym:'Gym + Arms', nutrition:'Nutrition', game:'Game Log', checkin:'Check-In', progress:'Progress' };
+  const TABS = ['engine','training','sprint','gym','iq','tactics','lineup','nutrition','game','checkin','progress'];
+  const TAB_LABELS = { engine:'🧠 Engine', training:'Training', sprint:'Sprint', gym:'Gym + Arms', iq:'Position IQ', tactics:'Team Tactics', lineup:'Lineup', nutrition:'Nutrition', game:'Game Log', checkin:'Check-In', progress:'Progress' };
 
   const colorMap = { red: [C.redLt, C.red, '#7A1F1F'], amber: [C.amberLt, C.amber, C.amber], green: [C.tealLt, C.teal, C.tealDk] };
 
@@ -186,7 +261,8 @@ export default function PlayerView({ player: initPlayer, team, onLogout }) {
         {/* Badges */}
         <div style={{ display:'flex',gap:6,flexWrap:'wrap',marginTop:8 }}>
           <span style={{ fontSize:10,padding:'2px 9px',borderRadius:20,fontWeight:700,background:`rgba(255,255,255,.15)`,color:'rgba(255,255,255,.85)' }}>{pos.emoji} {pos.label}</span>
-          <span style={{ fontSize:10,padding:'2px 9px',borderRadius:20,fontWeight:700,background:`rgba(255,255,255,.15)`,color:'rgba(255,255,255,.85)' }}>{gym.label}</span>
+          {secondaryPos && <span style={{ fontSize:10,padding:'2px 9px',borderRadius:20,fontWeight:700,background:`rgba(255,255,255,.1)`,color:'rgba(255,255,255,.75)' }}>{secondaryPos.emoji} {secondaryPos.label} (2nd)</span>}
+          <span style={{ fontSize:10,padding:'2px 9px',borderRadius:20,fontWeight:700,background:`rgba(255,255,255,.15)`,color:'rgba(255,255,255,.85)' }}>💪 {pos.gymPriority}</span>
           <span style={{ fontSize:10,padding:'2px 9px',borderRadius:20,fontWeight:700,background:`rgba(255,255,255,.15)`,color:'rgba(255,255,255,.85)' }}>{BODY_GOALS[player.body_goal]?.label}</span>
           {player.coach_focus && <span style={{ fontSize:10,padding:'2px 9px',borderRadius:20,fontWeight:700,background:'rgba(29,158,117,.35)',color:'#9efcd9' }}>📌 {player.coach_focus}</span>}
           {player.is_injured && <span style={{ fontSize:10,padding:'2px 9px',borderRadius:20,fontWeight:700,background:'rgba(226,75,74,.35)',color:'#ffd0cf' }}>🩹 Injured</span>}
@@ -357,57 +433,20 @@ export default function PlayerView({ player: initPlayer, team, onLogout }) {
 
         {/* ══ GYM ══ */}
         {tab==='gym' && <>
-          <Hbox color="blue">Overload: +5 lbs OR 1–2 more reps every session. Shoulder protection: Band external rotations 2×15 every push + pull day.</Hbox>
+          <Hbox color="blue">Overload: +5 lbs OR 1–2 more reps every session. Shoulder protection: Band external rotations 2×15 on every push + pull day.</Hbox>
           <div style={{ background:C.purpleLt,borderLeft:`3px solid ${C.purple}`,color:C.purple,borderRadius:'0 6px 6px 0',padding:'7px 11px',marginTop:8,fontSize:12,lineHeight:1.6,marginBottom:'1rem' }}>
-            Gym style: <strong>{gym.label}</strong> — {gym.sets} sets × {gym.reps} reps · {gym.rest} rest · {gym.emphasis}
+            <strong>{pos.gymPriority}</strong> — Tailored for {pos.label}{secondaryPos?` + ${secondaryPos.label}`:''}. Style: {pos.gymStyle.sets} sets × {pos.gymStyle.reps} reps · {pos.gymStyle.rest} rest.
           </div>
-          {[
-            ['Tuesday — Push + Arm Finisher',[
-              ['Barbell bench press','4×6–8','2/1/2','Main chest mass'],
-              ['Incline DB press','3×8–10','2/1/2','Upper chest'],
-              ['Overhead press','3×6–8','2/1/2','Shoulder width'],
-              ['Lateral raises','4×12–15','2/0/2','Frame width'],
-              ['OHT extension','3×10–12','2/1/2','Long head'],
-              ['Tricep pushdowns','3×12–15','Ctrl','Pump finisher'],
-              ['ARM FINISHER','','',''],
-              ['Cable curls','3×12','2/0/2','Peak — constant tension'],
-              ['Rope pushdowns','3×15','Ctrl','Lateral head'],
-              ['Band ext. rotations','2×15','Ctrl','Shoulder protection'],
-            ]],
-            ['Thursday — Pull + Arm Finisher',[
-              ['Pull-ups (weighted)','4×6–10','2/0/3','Width + thickness'],
-              ['Barbell rows','4×8–10','2/1/2','Mid-back density'],
-              ['Lat pulldown','3×10–12','2/1/2','Full stretch'],
-              ['Face pulls','3×15','Ctrl','Rear delts'],
-              ['Barbell curl','4×8–10','2/0/2','Primary — track this'],
-              ['ARM FINISHER','','',''],
-              ['Hammer curls','3×12','Ctrl','Brachialis thickness'],
-              ['Preacher curls','3×10–12','2/1/2','Isolate'],
-              ['Overhead tricep ext.','3×12','2/1/2','Long head'],
-              ['Band ext. rotations','2×15','Ctrl','Shoulder protection'],
-            ]],
-            ['Friday — Legs + Full Arms',[
-              ['Barbell back squats','4×6–8','3/1/2','Sprint power'],
-              ['Romanian deadlifts','3×8–10','3/0/1','Hamstrings + glutes'],
-              ['Bulgarian split squats','3×10 each','2/1/2','Single-leg stability'],
-              ['Leg curl','3×12','2/1/2','Hamstring isolation'],
-              ['Calf raises (slow)','4×15–20','3/1/3','Achilles strength'],
-              ['PRIMARY ARM LIFTS','','',''],
-              ['Close-grip bench','3×8–10','2/1/2','Tricep mass — log this'],
-              ['Skull crushers','3×10–12','2/0/2','Long head — log this'],
-              ['Bicep 21s','3 sets','Ctrl','7 low/7 high/7 full'],
-              ['Cable curls','3×12','2/0/2','Constant tension'],
-              ['Rope pushdowns','3×15','Ctrl','Lateral head pump'],
-            ]],
-          ].map(([title,rows])=>(
-            <div key={title}>
-              <Sh>{title}</Sh>
+          {[['Tuesday',gymPlan.tuesday],['Thursday',gymPlan.thursday],['Friday',gymPlan.friday]].map(([day,exercises])=>(
+            <div key={day}>
+              <Sh>{day}</Sh>
               <TblWrap>
                 <thead><tr><Th>Exercise</Th><Th>Sets × Reps</Th><Th>Tempo</Th><Th>Focus</Th></tr></thead>
-                <tbody>{rows.map((r,i)=>{
-                  const isHeader = !r[1];
-                  return <tr key={i} style={{ background:isHeader?C.blueLt:i%2===0?C.bg:'white' }}>
-                    <Td hl>{r[0]}</Td><Td>{r[1]}</Td><Td>{r[2]}</Td><Td>{r[3]}</Td>
+                <tbody>{(exercises||[]).map((ex,i)=>{
+                  const isArm = ex.focus.includes('ARM FINISHER');
+                  const isExtra = ex.focus.startsWith('[');
+                  return <tr key={i} style={{ background:isArm?C.blueLt:isExtra?C.tealLt:i%2===0?C.bg:'white' }}>
+                    <Td hl>{ex.ex}</Td><Td>{ex.sets}</Td><Td>{ex.tempo}</Td><Td>{ex.focus}</Td>
                   </tr>;
                 })}</tbody>
               </TblWrap>
@@ -427,6 +466,28 @@ export default function PlayerView({ player: initPlayer, team, onLogout }) {
             <button onClick={submitLifts} disabled={lSaving} style={{ padding:'6px 14px',borderRadius:8,border:'none',background:C.teal,color:'white',fontSize:12,fontWeight:700,cursor:'pointer',marginTop:4 }}>{lSaving?'Saving...':'Save Lift Log'}</button>
           </Card>
         </>}
+
+        {/* ══ POSITION IQ ══ */}
+        {tab==='iq' && <>
+          <div style={{ marginBottom:'1rem' }}>
+            <h3 style={{ fontSize:15,fontWeight:800,marginBottom:4 }}>{pos.emoji} {pos.label} IQ Scenarios</h3>
+            <p style={{ fontSize:12,color:C.muted }}>5 scenarios — do them daily before a session. 10 minutes of mental reps without touching a ball.</p>
+          </div>
+          <IQQuiz scenarios={pos.iq} posLabel={pos.label} posColor={pos.color}/>
+          {secondaryPos && <>
+            <div style={{ margin:'1.5rem 0 1rem',paddingTop:'1rem',borderTop:`1px solid ${C.border}` }}>
+              <h3 style={{ fontSize:15,fontWeight:800,marginBottom:4 }}>{secondaryPos.emoji} {secondaryPos.label} IQ Scenarios</h3>
+              <p style={{ fontSize:12,color:C.muted }}>Secondary position scenarios for your hybrid role.</p>
+            </div>
+            <IQQuiz scenarios={secondaryPos.iq} posLabel={secondaryPos.label} posColor={secondaryPos.color}/>
+          </>}
+        </>}
+
+        {/* ══ TACTICS ══ */}
+        {tab==='tactics' && <TacticsView/>}
+
+        {/* ══ LINEUP ══ */}
+        {tab==='lineup' && <LineupView team={team} isCoach={false} currentPlayerId={player.id}/>}
 
         {/* ══ NUTRITION ══ */}
         {tab==='nutrition' && <>
